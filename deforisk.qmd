@@ -34,6 +34,19 @@ engine: knitr
 #| include: false
 #| echo: false
 
+devtools::install_github("r-spatial/sf", configure.args = c(
+  "--with-gdal-config=/opt/local/bin/gdal-config", 
+  "--with-proj-include=/opt/local/lib/proj9/include", 
+  "--with-proj-lib=/opt/local/lib/proj9/lib", 
+  "--with-geos-config=/opt/local/bin/geos-config"))
+
+install.packages('terra', type="source", configure.args = c(
+  "--with-gdal-config=/opt/local/bin/gdal-config", 
+  "--with-proj-include=/opt/local/lib/proj9/include", 
+  "--with-proj-lib=/opt/local/lib/proj9/lib", 
+  "--with-geos-config=/opt/local/bin/geos-config"))
+
+
 pacman::p_load(
   "animation",
   "bibtex",
@@ -855,21 +868,21 @@ Variables Accuracy Kappa AccuracySD KappaSD Selected
 5   8   0.9989  0.9972  0.002423    0.006388    
 ```
 
-+--------+--------------+--------------+--------------+--------------+--------------+--------------+
-|        | Va riables   | A ccuracy    | Kappa        | Acc uracySD  | KappaSD      | S elected    |
-|        |              |              |              |              |              |              |
-|        | \<S3: AsIs\> | \<S3: AsIs\> | \<S3: AsIs\> | \<S3: AsIs\> | \<S3: AsIs\> | \<S3: AsIs\> |
-+:=======+=============:+=============:+=============:+=============:+=============:+=============:+
-| 1      | 1            | 0.9981       | 0.9949       | 0 .003389    | 0 .008870    |              |
-+--------+--------------+--------------+--------------+--------------+--------------+--------------+
-| 2      | 3            | 0.9994       | 0.9983       | 0 .001759    | 0 .004588    | \*           |
-+--------+--------------+--------------+--------------+--------------+--------------+--------------+
-| 3      | 5            | 0.9991       | 0.9978       | 0 .001984    | 0 .005188    |              |
-+--------+--------------+--------------+--------------+--------------+--------------+--------------+
-| 4      | 7            | 0.9989       | 0.9972       | 0 .002423    | 0 .006388    |              |
-+--------+--------------+--------------+--------------+--------------+--------------+--------------+
-| 5      | 8            | 0.9989       | 0.9972       | 0 .002423    | 0 .006388    |              |
-+--------+--------------+--------------+--------------+--------------+--------------+--------------+
++---+--------------+--------------+--------------+--------------+--------------+--------------+
+|   | Va riables   | A ccuracy    | Kappa        | Acc uracySD  | KappaSD      | S elected    |
+|   |              |              |              |              |              |              |
+|   | \<S3: AsIs\> | \<S3: AsIs\> | \<S3: AsIs\> | \<S3: AsIs\> | \<S3: AsIs\> | \<S3: AsIs\> |
++:==+=============:+=============:+=============:+=============:+=============:+=============:+
+| 1 | 1            | 0.9981       | 0.9949       | 0 .003389    | 0 .008870    |              |
++---+--------------+--------------+--------------+--------------+--------------+--------------+
+| 2 | 3            | 0.9994       | 0.9983       | 0 .001759    | 0 .004588    | \*           |
++---+--------------+--------------+--------------+--------------+--------------+--------------+
+| 3 | 5            | 0.9991       | 0.9978       | 0 .001984    | 0 .005188    |              |
++---+--------------+--------------+--------------+--------------+--------------+--------------+
+| 4 | 7            | 0.9989       | 0.9972       | 0 .002423    | 0 .006388    |              |
++---+--------------+--------------+--------------+--------------+--------------+--------------+
+| 5 | 8            | 0.9989       | 0.9972       | 0 .002423    | 0 .006388    |              |
++---+--------------+--------------+--------------+--------------+--------------+--------------+
 
 In summary, the subset model achieved an Accuracy of 88.58% and a Kappa Index of 0.6338. These metrics closely align with the results of the original model, suggesting minimal or no loss in predictive power despite using fewer predictors. Similarly, high-performing classes of `Forest` maintained sensitivity and specificity (SE = 0.9667, SP = 0.8462). Given that the reduction in complexity offered by the subsetted model does not provide significant benefits in this context, we recommend proceeding with the original model to make spatial predictions.
 
@@ -2090,7 +2103,7 @@ distance_to_water  <- terra::rast("./data/BINARY/distance_to_water_inverted.tif"
 slope              <- terra::rast("./data/BINARY/slope_norm.tif")
 ```
 
-#### Deforestation risk 
+#### Deforestation risk
 
 Two methods were explored for weighting variables and creating a generalized deforestation risk index. We could consider developing a spatial risk model using the `spatstat` package or logistic regression, as has been cited in recent Verra guides. In addition, some of the heavy lifting with input formatting and data wrangling has already been completed.
 
