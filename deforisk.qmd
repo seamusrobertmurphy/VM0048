@@ -59,8 +59,10 @@ pacman::p_load(
   "kableExtra",
   "knitr",
   "openxlsx",
-  "readxl", "rtnorm", 
-  "tinytex", "tune", 
+  "PROJ",
+  "readxl", "reproj", "rtnorm", 
+  "sf",
+  "tinytex", "tune", "terra",
   "useful", "webshot", "webshot2")
 
 knitr::opts_chunk$set(
