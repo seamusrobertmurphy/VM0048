@@ -1,0 +1,57 @@
+project:
+  type: website
+
+website:
+  title: "VM0048"
+  open-graph: true # https://quarto.org/docs/websites/website-tools.html#open-graph
+  page-footer: "Made with ❤️ and Quarto"
+  navbar:
+    title: "VM0048"
+    search: true
+    right:
+      - text: "Home"
+        href: index.qmd
+      - text: "Deforestation Risk"
+        href: deforisk.qmd
+      - text: "Leakage"
+        href: leakages.qmd
+      - text: "Watershed Maps"
+        href: watershed-map.qmd
+      - text: "Population Maps"
+        href: population-map.qmd
+    tools:
+      - icon: github
+        menu:
+          - text: Source Code
+            href: https://github.com/seamusrobertmurphy/VM0048
+          - text: Report a Bug
+            href: https://github.com/seamusrobertmurphy/VM0048/issues
+      - icon: linkedin
+        href: https://linkedin.com/in/seamusrobertmurphy
+      
+  sidebar:
+      pinned: true
+      style: "docked"
+      collapse-level: 1
+      contents:
+      - text: "Home"
+        href: index.qmd
+      - text: "Deforestation Risk"
+        href: deforisk.qmd
+      - text: "Leakage"
+        href: leakage.qmd
+      - text: "Watershed Maps"
+        href: watershed-map.qmd
+      - text: "Population Maps"
+        href: population-map.qmd
+      - section: "About"
+        contents:
+          - text: "Resume"
+            href: about.qmd
+          - text: "Projects"
+            href: projects.qmd
+            
+format:
+  html:
+    theme: [cosmo, styles.scss]
+engine: knitr

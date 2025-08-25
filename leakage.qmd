@@ -1,0 +1,671 @@
+---
+title: "Leakage"
+date: 2025-01-08
+author: 
+  - name: Seamus Murphy
+    orcid: 0000-0002-1792-0351 
+    email: seamusrobertmurphy@gmail.com
+abstract: > 
+  A workflow for deriving jurisidictional risk-allocated deforestation mapping compliant with Verra's [VMD0055 (V1.1)](https://verra.org/wp-content/uploads/2024/10/VMD0055-Estimation-of-Emission-Reductions-from-Avoiding-Unplanned-Deforestation-v1.1-CLEAN-2024.10.21.24.pdf) module and the [VM0048 (V1.0)](https://verra.org/wp-content/uploads/2023/11/VM0048-Reducing-Emissions-from-Deforestation-and-Forest-Degradation-v1.0-1-1.pdf) consolidated methodology. This includes baseline estimates of forest change and jurisdictional allocated deforestation.
+keywords:
+  - REDD+
+  - VCS
+  - Verra
+  - Carbon verification
+  - Jurisdictional
+format: 
+  html:
+    toc: true
+    toc-location: right
+    toc-title: "**Contents**"
+    toc-depth: 5
+    toc-expand: 4
+    theme: [minimal, styles.scss]
+highlight-style: github
+df-print: kable
+bibliography: references.bib
+engine: knitr
+---
+
+```{r, echo=F, message=F, warning=F, error=F, comment=NA}
+readRenviron("~/.Renviron")
+#styling notes - theme list
+#bootstrap, cerulean, cosmo, darkly, flatly, journal, lumen, paper, readable, sandstone, simplex, spacelab, united, and yeti
+
+pacman::p_load(
+  cols4all, distill, dplyr, flextable, knitr, latex2exp, leaflet, leaflet.extras, 
+  leaflet.providers, leafgl, leafem, latticeExtra, maptiles, markdowntemplates, 
+  palmerpenguins, raster, Rcpp, RcppThread, rmarkdown, rmapshaper, sf, sp, terra, tidyterra,
+  tinytex, tmap, tmaptools, xaringan, xaringanExtra)
+
+base::options(
+  htmltools.dir.version = F, 
+  htmltools.preserve.raw = F,
+  repos = c(CRAN = "https://cloud.r-project.org")
+  )
+
+knitr::opts_chunk$set(
+  echo    = TRUE, 
+  message = FALSE, 
+  warning = FALSE,
+  error   = FALSE, 
+  comment = NA,
+  fig.width  = 12,
+  fig.height = 9
+  )
+
+sf::sf_use_s2(use_s2 = FALSE) # non-spherical/ellipsoid geometries
+terraOptions(memfrac=0.9, tempdir = "./temp")
+```
+
+```{css, echo=FALSE, class.source = 'foldable'}
+div.column {
+    display: inline-block;
+    vertical-align: top;
+    width: 50%;
+}
+
+#TOC::before {
+  content: "";
+  display: block;
+  height: 60px;
+  width: 200px;
+  background-image: url(https://winrock.org/wp-content/uploads/2021/12/Winrock-logo-R.png);
+  background-size: contain;
+  background-position: center;
+  background-position: 50% 50%;
+  padding-top: 5px !important;
+  background-repeat: no-repeat;
+}
+```
+
+## Objective:
+
+This report outlines the geospatial methodology implemented to delineate a VMD0055-compliant leakage belt for the Gola REDD+ Forest Carbon Project in Liberia. The work was conducted as part of the larger REDD+ feasibility assessment work aiming to inform the development and submission of a project proposal that aligns with Verra's VM0048 project framework.[^1] Considering these directives and their future timelines, the following aimed to provide procedural guidelines for replicating this analysis and meeting the VM0048 standard. This included an overview of data sources reviewed and their qualifying criteria, methodological recommendations for documenting data processing tasks and reporting accuracy and performance metrics. Following this, we provide a summary of the project's revised area estimates. In effect, as a result of recent area expansions into nearby community forests, the project's total conservation zone increased by a factor of 6.04.
+
+The project's expansion necessitated identifying potential zones where deforestation pressures might shift due to enhanced conservation measures. We delineated a leakage belt from surrounding forestland meeting eligibility criteria defined in VM0048 and VMD0055 guidelines. These criteria include topographical constraints (slope gradients), anthropogenic factors (proximity to roads and settlements), and ecological considerations (excluding protected areas and wetlands), all aimed at ensuring the leakage area represents forests at risk of shifted deforestation rather than areas that would not normally face such pressures.
+
+### Project Boundaries
+
+#### Data imports:
+
+-   Imported the Liberia national boundary and county shapefiles.[^2]
+
+    Filtered counties to select the Grand Cape Mount and Gharpolu jurisdictions, relevant for the REDD+ project area.
+
+#### Data processing:
+
+-   A project coordinate system was declared as the EPSG:32629[^3] projected reference system, encouraging best practices, while matching package requirements and avoiding delays in shapefile processing downstream.
+-   Spatial data validation was performed prior to area calculations, targeting geometry checks due to their material influence on two-dimensional measurements. This also follows best practice dealing with new shapefiles, or rather old shapefiles with longer lifespans and more extensive revisions, that tend to involve orphaned artifacts, topology errors, or schema issues affect compromising our
+    -   We checked for schema conformity and domain consistency, relational fields, and potential for vertical integration. The check reviewed internal rules, file naming conventions, data types and value ranges.
+
+    -   Referencing OGC Standard (ISO, 2019),[^4] we conducted topology checks on polygonal structure and linework. Our screening identified 138 geometry violations, identifying 138 violations. These included overlapping borders, un-noded intersections, unclosed polygons, and 108 orphaned artifacts formed by banana polygons, self-touching holes, inverted shells, and dangling nodes. Geometry errors were extracted, corrected and recovered with the following functions run from a bash terminal deploying R, Python, and C++ libraries.
+-   `simplifyCoverageVW()`[^5] This function employs the Visvalingam–Whyatt algorithm to address geometry complexity along polygon edges by reducing vertices by a specified tolerance. This is one of the more forgiving functions as processed polygons are simplified but never removed entirely. However, this means that minimal polygons may remain unchanged or convert to triangle geometries, and that coverages with invalid topology may not be screened from valid results.
+-   `geos::hausdorffDistance()` The Hausdorff Distance function was employed to address similar problematic linework. However, it offers additional parameters allowing more precise estimates between polygon edges and target geometries, which better facilitates linework alignment using the snapping tool.
+-   `geos::maximumInscribedCircle()` The Maximum Inscribed Circle algorithm is a useful function for locating the smallest and narrowest strips or slivers. As the naming suggests, it characterizes the invalid polygons based on the size of the largest circle that can fit inside them. This function is especially useful for dealing with high numbers of very small slivers, as found here. By specifying narrowness thresholds, it offers screening parameters that help identify the smallest of orphans sometimes invisible to the eye.
+-   `sf::st_intersection()`[^6] A personal favorite of mine, this function provides a popular tool for repairing geometry overlays, though it is better known by its use in clipping operations. Despite some key differences to more common methods, `st_intersection()` effectively decomposes and exposes objects of overlapping, nested, or self-intersecting geometries. Where it varies is in the function's use of vertex-based indexing and its "valid_linework" approach that is unlike the "valid_structure" approach more commonly applied. As a result, the function proved instrumental to detecting smaller artifacts (\<100ha) that previously eluded `cast()` and other algorithms derived from structural rules and forms of polygons. By introducing two variables of `n_overlap` and `origins` to record vertex dependencies and self-intersections, the function elegantly exposes all overlapping slivers and embedded nodes, while also segmenting their invalid geometries, and enabling their easy extraction or recovery and reclassification into the valid network.
+
+#### Area Calculation:
+
+-   Computed total hectares of project sites.
+-   Final area estimates were reported below which yielded a total project footprint of 769,050 ha in the newest expansion.
+
+```{r, echo=T, message=F, warning=F, error=F, comment=NA, eval=T}
+country = sf::read_sf("/Users/seamus/Library/CloudStorage/OneDrive-WinrockInternationalInstituteforAgriculturalDevelopment/20087 - RSPB Gola Feasibility/Deliverables/Spatial Data/AOI/Archive/Liberia-National-Border/liberia_boundary_national.shp", quiet=TRUE) |>sf::st_transform(32629)
+
+counties = sf::st_read("/Users/seamus/Library/CloudStorage/OneDrive-WinrockInternationalInstituteforAgriculturalDevelopment/20087 - RSPB Gola Feasibility/Deliverables/Spatial Data/AOI/Archive/Liberia-Jurisdiction-Boundaries/places_poly_county.shp", quiet=TRUE) |>sf::st_transform(32629)
+
+jurisdiction = counties |>dplyr::filter(name=="Grand Cape Mount County"|name=="Gharpolu County")
+jurisdiction$name = 'Grand Cape Mount & Gharpolu Counties'
+
+pop = sf::st_read("/Users/seamus/Library/CloudStorage/OneDrive-WinrockInternationalInstituteforAgriculturalDevelopment/20087 - RSPB Gola Feasibility/Deliverables/Spatial Data/POP/Archive/Villages-Extended-Metric.gpkg", quiet=TRUE) |> sf::st_make_valid() |> sf::st_cast("MULTIPOINT")
+
+aoi = sf::read_sf("/Users/seamus/Library/CloudStorage/OneDrive-WinrockInternationalInstituteforAgriculturalDevelopment/20087 - RSPB Gola Feasibility/Deliverables/Spatial Data/AOI/Archive/ProjectArea_CF-Expansion_051525/updated_areas.shp", quiet=TRUE) |>
+  sf::st_make_valid() |>
+  sf::st_transform("EPSG:32629") |>  
+  sf::st_cast("MULTIPOLYGON") |> sf::st_as_sf()# |> dplyr::select("Name")
+
+# check for hidden artefacts
+st_geometry_type(aoi)
+aoi_valid <- st_make_valid(aoi)
+aoi_intersections <- st_intersection(aoi_valid)
+aoi_intersections$area_ha <- round(as.numeric(st_area(aoi_intersections) * 0.0001), 3)
+artefacts <- aoi_intersections %>% filter(area_ha < 100) |> dplyr::select(-origins)
+
+# process artefacts 
+table(sf::st_geometry_type(artefacts))
+artefacts_points <- artefacts %>% filter(st_geometry_type(.) %in% c("POINT", "MULTIPOINT"))
+artefacts_lines <- artefacts %>% filter(st_geometry_type(.) %in% c("LINESTRING", "MULTILINESTRING"))
+artefacts_polygons <- artefacts %>% filter(st_geometry_type(.) %in% c("POLYGON", "MULTIPOLYGON"))
+st_write(artefacts_points, "./data/AOI/Archive/artefact_check_points.shp", append=F, quiet=TRUE)
+st_write(artefacts_lines, "./data/AOI/Archive/artefact_check_lines.shp", append=F, quiet=TRUE)
+st_write(artefacts_polygons, "./data/AOI/Archive/artefact_check_polygons.shp", append=F, quiet=TRUE)
+
+cat("Points:", nrow(artefacts_points), "\n")
+cat("Lines:", nrow(artefacts_lines), "\n")
+cat("Polygons:", nrow(artefacts_polygons), "\n")
+
+aoi$area_ha = round(as.numeric(sf::st_area(aoi) * 0.0001, 4))
+aoi |> sf::st_drop_geometry() |> janitor::adorn_totals() |> 
+  flextable::flextable() |> 
+  flextable::fontsize(size=8,part="all") |> 
+  flextable::autofit() 
+```
+
+```{r}
+tmap::tmap_mode("view")
+tmap::tm_shape(aoi) + tmap::tm_borders(lwd=0.5, col="white") +
+  tmap::tm_text(text="Name", size=0.5, col="white") +  
+  tmap::tm_shape(country) + tmap::tm_borders(lwd=0.8, col="orange") +
+  tmap::tm_shape(counties) + tmap::tm_borders(lwd=1, col="brown") +
+  tmap::tm_text(text="name", size=0.8, col="brown") +
+  tmap::tm_scalebar(position = c("RIGHT", "BOTTOM"), text.size = .5) + 
+  tmap::tm_basemap("Esri.WorldImagery") +
+  tmap::tm_view(set_zoom_limits = c(8,14))
+```
+
+### Derive Leakage Belt
+
+Implemented per the VM0048 and VMD0055 methodologies, the leakage belt is defined as a buffer zone around the project area in which potential deforestation leakage will be monitored. The following steps were taken to delineate this belt in accordance with those requirements:
+
+#### Leakage belt radius:
+
+-   We created an initial 5.5km buffer around the project's area of interest (AOI), before a second buffer of the first was extended an additional 4.5 km outward. This two-step buffer operation was originally employed to smoothen buffer geometry that was produced by pockets of non-project area and complicated by complex perimeters of project sites.
+-   All output geometries were checked and repaired systematically using the folloiwng three geometry corrections:
+    -   `st_cast()`, `st_zm()`, `st_make_valid()` <!--# Note to self, need to summarize explicitly the geometry effects of each function and the limitations of systematically applying  to all shapefiles, for example zoom in and review the final leakage belt shapefile below that includes so many triangles. Alternatively, we may recommend use of ST_MakeValid(), ensuring OGC Simple Feature compliance -->
+
+```{r, message=F, warning=F, error=F, comment=NA, eval=T, echo=F}
+aoi_union = sf::st_transform(aoi, 32629) |>  sf::st_union() |> sf::st_make_valid()
+leakage_belt_whole = sf::st_buffer(aoi_union, dist = 10000, endCapStyle="ROUND") |>
+  sf::st_make_valid() |>  sf::st_zm() |> sf::st_cast() |> sf::st_as_sf()
+
+tmap::tmap_mode("view")
+tmap::tm_shape(leakage_belt_whole) + 
+  tmap::tm_polygons(col="yellow",fill="yellow",fill_alpha=0.3,lwd=1)+
+  tmap::tm_shape(aoi) + tmap::tm_borders(lwd=1, col="white") +
+  tmap::tm_basemap("Esri.WorldImagery")
+```
+
+2.  Concave Hull Application:
+
+    The `concavehull()` function was used to refine polygon edges by more accurately matching project perimeters where linework is more complex. Effectively, using a concave hull instead of a simple convex buffer ensures the leakage delineation addresses all indentations of the forest boundary and avoids convex gaps not adjacent to the project. 
+
+3.  Leakage Belt Finalization:
+
+    -   Calculated intersection of leakage buffer with the national boundary to define eligible leakage areas.
+    -   Computed final area (ha) for monitoring maximum and mininum thresholds.
+
+```{r, message=F, warning=F, error=F, comment=NA, eval=F, echo=T}
+leakage_belt         = sf::st_difference(leakage_belt_whole, st_union(st_combine(aoi_union)))
+leakage_belt$area_ha = round(as.numeric(sf::st_area(leakage_belt) * 0.0001, 4)) 
+leakage_belt         = sf::st_intersection(country, leakage_belt)
+
+tmap::tmap_mode("view")
+tmap::tm_shape(leakage_belt) + 
+  tmap::tm_polygons(col="yellow",fill="yellow",fill_alpha=0.3)+
+  tmap::tm_shape(aoi) + tmap::tm_borders(lwd=0.4, col="white") + 
+  tmap::tm_text(text="Name", size=0.5, col="white") +
+  tmap::tm_basemap("Esri.WorldImagery")
+
+# save locally
+#sf::wt_write(leakage_belt, "OneDrive.../20087 - RSPB Gola Feasibility/Deliverables/Spatial Data/LEAKAGE/Archive/LeakageBelt_10k-Radius_UnFiltered.zip") 
+#sf::st_write(leakage_belt_whole, "OneDrive.../20087 - RSPB Gola Feasibility/Deliverables/Spatial Data/LEAKAGE/Archive/LeakageBelt_10k-Radius_UnFiltered-Whole.shp")
+```
+
+```{r, echo=F, message=F, warning=F, error=F, comment=NA, eval=T}
+leakage_belt   = sf::st_read("/Users/seamus/Library/CloudStorage/OneDrive-WinrockInternationalInstituteforAgriculturalDevelopment/20087 - RSPB Gola Feasibility/Deliverables/Spatial Data/LEAKAGE/Archive/LeakageBelt_10k-Radius_UnFiltered/leakage_belt_10km_liberia_ext.shp", quiet=TRUE) 
+leakage_belt$area_ha = round(as.numeric(sf::st_area(leakage_belt) * 0.0001, 4))
+leakage_belt$Name = "Leakage Belt 10km Radius"
+leakage_belt
+
+tmap::tmap_mode("view")
+tmap::tm_shape(leakage_belt) + 
+  tmap::tm_polygons(col="yellow",fill="yellow",fill_alpha=0.3)+
+  tmap::tm_shape(aoi) + tmap::tm_borders(lwd=0.4, col="white") + 
+  tmap::tm_text(text="Name", size=0.5, col="white") +
+  tmap::tm_scale_bar(position = c("RIGHT", "BOTTOM"), text.size = .5) + 
+  tmap::tm_basemap("Esri.WorldImagery")
+```
+
+### Derive Leakage Masks
+
+After delineating the initial 10 km leakage belt, we applied a series of exclusion masks to remove areas that are not eligible for leakage accounting as per VM0048/VMD0055 criteria. The creation of these masks ensures that the final leakage belt includes only areas where project-related leakage could occur, excluding areas where deforestation is unlikely or not attributable to project activities. Both VM0048 and VMD0055 explicitly stipulate the removal of certain land categories from the leakage belt to ensure accurate and conservative leakage monitoring. In practice, this meant excluding zones near major roads, wetlands, steep slopes, and existing protected areas. Verra’s guidance also emphasizes confirming the legal definitions and extents of these excluded areas in consultation with local stakeholders and authorities. Notably, spatial datasets for features like wetlands, rural roads, and community protection areas can be highly variable in quality; thus, our mask development included careful verification to align with official definitions and the latest available data. Below, we detail the construction of each mask layer:
+
+#### Roads Mask
+
+Following leakage belt exclusion criteria outlined in VMD0055, we removed areas that were located within 10km of road infrastructure. This was implemented to reduce false-positive leakage signals.
+
+*Implementation steps:*
+
+1.  Road Data Processing:
+    -   Imported and validated two road datasets and checked for geometry errors or merging issues.
+    -   The Douglas-Peucker algorithm[^7] was employed on larger datasets to reduce computational load by simplifying vertex networks, while maintaining structural and linework integrity.
+2.  Buffering roads:
+    -   Created 10 km buffer around roads with simplified geometries to produce a leakage exclusion mask.
+    -   Unified separate buffers into a single comprehensive road mask for spatial consistency.
+
+```{r, message=F, warning=F, error=F, comment=NA, eval=F}
+roads_ext = sf::st_read("/Users/seamus/Library/CloudStorage/OneDrive-WinrockInternationalInstituteforAgriculturalDevelopment/20087 - RSPB Gola Feasibility/Deliverables/Spatial Data/ROADS/Archive/Roads_Gola_RSPB-OSM-Combined/Roads_Gola_RSPB-OSM-Merged.shp") |> 
+  sf::st_make_valid() |> sf::st_cast("MULTILINESTRING") |> rmapshaper::ms_simplify(keep=0.5)
+roads_one = sf::st_read("~/Library/CloudStorage/OneDrive-WinrockInternationalInstituteforAgriculturalDevelopment/20087 - RSPB Gola Feasibility/Deliverables/Spatial Data/ROADS/Archive/roads_simplified_one.shp")
+roads_two = sf::st_read("~/Library/CloudStorage/OneDrive-WinrockInternationalInstituteforAgriculturalDevelopment/20087 - RSPB Gola Feasibility/Deliverables/Spatial Data/ROADS/Archive/roads_simplified_two.shp")
+
+# we have simplify mask shapefiles and split them up to shorten computing 
+# time & avoid crashing. See option for "harsh" simplification on line 163
+roads_one_simplified = roads_one |> sf::st_make_valid() |> sf::st_cast("MULTILINESTRING") |> 
+  rmapshaper::ms_simplify(keep=0.5)
+roads_two_simplified = roads_two |> sf::st_make_valid() |> sf::st_cast("MULTILINESTRING") |> 
+  rmapshaper::ms_simplify(keep=0.5)
+
+# bigger file needs more simplificaiotn
+roads_one_simplified_harsh = rmapshaper::ms_simplify(
+  roads_one_simplified, keep=0.01) 
+
+# now apply buffer operation, but note this takes time. Its 
+# advised processing inputs as much as possible before running
+roads_one_buffer = sf::st_buffer(
+  roads_one_simplified_harsh, 
+  dist = 10000, 
+  nQuadSegs = 5,
+  endCapStyle="ROUND", 
+  joinStyle = "ROUND",
+  mitreLimit = 1,
+  singleSide = FALSE
+  )
+
+roads_two_buffer = sf::st_buffer(
+  roads_two_simplified, 
+  dist = 10000, 
+  nQuadSegs = 5,
+  endCapStyle="ROUND", 
+  joinStyle = "ROUND",
+  mitreLimit = 1,
+  singleSide = FALSE
+  )
+
+# Combine, dissolve and cast to single feature
+roads_mask = sf::st_combine(roads_one_buffer, roads_two_buffer) |>
+  sf::st_union() |> sf::st_cast("POLYGON")
+
+# Visual check
+tmap::tmap_mode("view")
+tmap::tm_shape(roads_mask) + tmap::tm_borders(lwd=0) +
+  tmap::tm_shape(roads_one_simplified_harsh) + tmap::tm_lines(lwd=2, col="red") +
+  tmap::tm_shape(roads_two_simplified) + tmap::tm_lines(lwd=2, col="green") +
+  tmap::tm_shape(roads_mask) + tmap::tm_borders(lwd=1, col="pink") + 
+  #tmap::tm_graticules(lines=T,labels.rot=c(0,90),lwd=0.2) +
+  tmap::tm_scale_bar(position = c("RIGHT", "BOTTOM"), text.size = .5) + 
+  tmap::tm_compass(color.dark = "gray60", text.color = "gray60", position = c("left", "top")) +
+  tmap::tm_basemap("Esri.WorldImagery")
+
+
+# Save output to MASKS folder and purge memory
+#sf::st_write(roads_mask, "/Users/seamus/Library/CloudStorage/OneDrive-WinrockInternationalInstituteforAgriculturalDevelopment/20087 - RSPB Gola Feasibility/Deliverables/Spatial Data/MASKS/LeakageMask_Roads_10km-Buffer_051625.shp", delete_dsn=T)
+```
+
+```{r, echo=F}
+roads_one = sf::st_read("~/Library/CloudStorage/OneDrive-WinrockInternationalInstituteforAgriculturalDevelopment/20087 - RSPB Gola Feasibility/Deliverables/Spatial Data/ROADS/Archive/roads_simplified_one.shp")
+roads_two = sf::st_read("~/Library/CloudStorage/OneDrive-WinrockInternationalInstituteforAgriculturalDevelopment/20087 - RSPB Gola Feasibility/Deliverables/Spatial Data/ROADS/Archive/roads_simplified_two.shp")
+roads_mask = sf::st_read("~/Library/CloudStorage/OneDrive-WinrockInternationalInstituteforAgriculturalDevelopment/20087 - RSPB Gola Feasibility/Deliverables/Spatial Data/MASK/Archive/LeakageMask_Roads_10km-Buffer_051625/Road_Mask_10km-Proximity_051625.shp")# |> sf::st_transform(3857) 
+roads_ext = sf::st_read("/Users/seamus/Library/CloudStorage/OneDrive-WinrockInternationalInstituteforAgriculturalDevelopment/20087 - RSPB Gola Feasibility/Deliverables/Spatial Data/ROADS/Archive/Roads_Gola_RSPB-OSM-Combined/Roads_Gola_RSPB-OSM-Merged.shp") |> 
+  sf::st_make_valid() |> sf::st_cast("MULTILINESTRING") |> rmapshaper::ms_simplify(keep=0.5)
+
+# we have simplify mask shapefiles and split them up to shorten computing 
+# time & avoid crashing. See option for "harsh" simplification on line 163
+roads_one_simplified = roads_one |> sf::st_make_valid() |> sf::st_cast("MULTILINESTRING") |> 
+  rmapshaper::ms_simplify(keep=0.5)# |> sf::st_transform(3857)
+roads_two_simplified = roads_two |> sf::st_make_valid() |> sf::st_cast("MULTILINESTRING") |> 
+  rmapshaper::ms_simplify(keep=0.5)# |> sf::st_transform(3857)
+
+# bigger file needs more simplificaiotn
+roads_one_simplified_harsh = rmapshaper::ms_simplify(
+  roads_one_simplified, keep=0.01) 
+
+# Visual check
+tmap::tmap_mode("view")
+tmap::tm_shape(roads_mask) + tmap::tm_borders(lwd=0) +
+  tmap::tm_shape(roads_one_simplified_harsh) + tmap::tm_lines(lwd=2, col="red") +
+  tmap::tm_shape(roads_two_simplified) + tmap::tm_lines(lwd=2, col="green") +
+  tmap::tm_shape(roads_mask) + tmap::tm_borders(lwd=1, col="pink") + 
+  #tmap::tm_graticules(lines=T,labels.rot=c(0,90),lwd=0.2) +
+  tmap::tm_scale_bar(position = c("RIGHT", "BOTTOM"), text.size = .5) + 
+  tmap::tm_compass(color.dark = "gray60", text.color = "gray60", position = c("left", "top")) +
+  tmap::tm_basemap("Esri.WorldImagery")
+```
+
+#### Habitat Masks
+
+Habitat masks were derived using wetlands and protected area datasets confirmed through discussions with the client. Both VM0048 and VMD0055 guidelines explicitly stipulate the exclusion of certain land categories from leakage belts to ensure accurate and conservative leakage monitoring. As highlighted during design meetings in March, Verra has provided additional guidance to project developers wishing to confirm the legal definitions of these area designations. While high variance and inconsistency is typical of spatial datasets representing wetlands, conservation habitats, artisanal farming and rural road networks in forested landscapes, Verra has also acknowledged that such mapping criteria particularly related to proected areas is likely to require considerable discussions and negotiations with local stakeholders, national government, and with Verra's VM0048 committee.
+
+*Implementation steps:*
+
+1.  Wetlands data processing:
+    -   Imported wetland raster datasets from peer-reviewed and approved sources as mandated by VMD0055.
+
+    -   Cropped wetlands raster precisely to the spatial extent of the identified leakage belt.
+
+    -   Reclassified wetland habitat classes based explicitly on VM0048 criteria, distinguishing eligible classes clearly, adhering to procedures outlined in Appendix 2 of VMD0055.
+2.  Wetland mask generation:
+    -   Converted classified wetlands into a binary mask layer, ensuring compatibility and direct alignment with VM0048/VMD0055 requirements to exclude wetlands from leakage areas.
+
+```{r, eval=T, error=F}
+# Prepare shell for cropping 
+leakage_belt_crop = sf::st_as_sf(leakage_belt_whole) |> terra::vect()
+
+# import inputs, and simplify
+waterways = sf::st_read("/Users/seamus/Library/CloudStorage/OneDrive-WinrockInternationalInstituteforAgriculturalDevelopment/20087 - RSPB Gola Feasibility/Deliverables/Spatial Data/HYDRO/Waterways/Winrock_Waterways_Gola_051625.gpkg", quiet=T) |> 
+  sf::st_make_valid() |> 
+  sf::st_cast("MULTILINESTRING") 
+
+wetlands= terra::rast("/Users/seamus/Library/CloudStorage/OneDrive-WinrockInternationalInstituteforAgriculturalDevelopment/20087 - RSPB Gola Feasibility/Deliverables/Spatial Data/HABITAT/Wetlands/GLWD_EPSG32629.tif")
+wetlands = terra::crop(wetlands, leakage_belt_crop, mask=T)
+
+# tidy labeling
+code_dict_2 <- data.frame(
+  id = c(1, 4, 7, 10, 12, 14, 15, 18, 20, 21, 26, 31),
+  label = c(
+    "Freshwater lake",                              # 1
+    "Large river",                                  # 4
+    "Small streams",                                # 7
+    "Riverine, regularly flooded, forested",        # 10
+    "Riverine, seasonally flooded, forested",       # 12
+    "Riverine, seasonally saturated, forested",     # 14
+    "Riverine, seasonally saturated, non-forested", # 15
+    "Palustrine, seasonally saturated, forested",   # 18
+    "Ephemeral, forested",                          # 20
+    "Ephemeral, non-forested",                      # 21
+    "Tropical peatland, forested",                  # 26
+    "Other coastal wetland"                         # 31
+  ))
+
+levels(wetlands) <- code_dict_2
+wetlands[wetlands == 0] <- NA
+
+# derive wetland mask
+wetlands_mask <- wetlands
+wetland_classes <- c(1, 4, 7, 10, 12, 14, 15, 18, 20, 21, 26, 31)
+terra::values(wetlands_mask) <- ifelse(terra::values(wetlands) %in% wetland_classes, 1, NA)
+
+tmap::tmap_mode("view")
+tmap::tm_shape(leakage_belt_whole) + tmap::tm_borders(lwd=0) +
+  tmap::tm_shape(leakage_belt)+tmap::tm_polygons(col="yellow",fill="yellow",fill_alpha=0.4,lwd=1.5) + 
+  tmap::tm_shape(wetlands) + tmap::tm_raster(col.legend = tm_legend("Wetlands (GLWD")) +
+  tmap::tm_shape(aoi) + tmap::tm_borders(lwd=1, col="red") + 
+  tmap::tm_text(text="Name", size=0.3, col="black") +
+  tmap::tm_scalebar(position = c("RIGHT", "BOTTOM"), text.size = .5) + 
+  tmap::tm_compass(color.dark = "gray60", text.color = "gray60", position = c("left", "top")) +
+  tmap::tm_basemap("Esri.WorldImagery")
+```
+
+*Implementation steps:*
+
+1.  Protected areas mask:
+    -   Obtained spatial datasets from the World Database on Protected Areas (WDPA),[^8] ensuring compliance with Verra's approved data sources.
+
+    -   Conducted spatial overlay analysis to identify and exclude legally protected areas classified under IUCN categories I, II, and III, existing managed timber concessions, and UDef PAs and UDef LBs previously validated or verified within the past five years, as stipulated by VMD0055 Appendix 2.
+
+    -   Ensured all data underwent verification of legal status and eligibility through consultation with local stakeholders and Liberian regulatory authorities, following VMD0055 standards.
+2.  Legal and Compliance Considerations:
+    -   All data inputs were verified against regulatory standards, ensuring legality and eligibility for inclusion/exclusion from the leakage belt.
+
+    -   Initial analyses deliberately excluded protected lands pending further verification of conservation areas' legal statuses with stakeholders, regulatory bodies, and Verra, in accordance with VMD0055 guidelines.
+
+    -   Documentation of all masking operations and criteria applied was systematically recorded for transparency, validation, and future auditing processes, explicitly aligning with VM0048 (Sections 8.3) and VMD0055 (Section 5.1.3-5.2; Appendix 2).
+
+```{r, eval=T, error=F}
+protected_areas = sf::st_read("/Users/seamus/Library/CloudStorage/OneDrive-WinrockInternationalInstituteforAgriculturalDevelopment/20087 - RSPB Gola Feasibility/Deliverables/Spatial Data/HABITAT/Protected Areas/Archive/WDPA_Mar2025_Public_32629_GOLA.shp")
+
+tmap::tmap_mode("view")
+tmap::tm_shape(leakage_belt_whole) + tmap::tm_borders(lwd=0) +
+  tmap::tm_shape(leakage_belt) + 
+  tmap::tm_polygons(col="yellow",fill="yellow",fill_alpha=0.4, lwd=1)+ 
+  tmap::tm_shape(protected_areas) + 
+  tmap::tm_polygons(fill="ORIG_NAME", fill.legend = tm_legend("Protected Areas (WDPA)")) +
+  tmap::tm_shape(aoi) + tmap::tm_borders(lwd=1, col="red") + 
+  tmap::tm_text(text="Name", size=0.5, col="grey") +
+  tmap::tm_scalebar(position = c("RIGHT", "BOTTOM"), text.size = .5) + 
+  tmap::tm_compass(color.dark="gray60", text.color="gray60", position=c("left","top")) +
+  tmap::tm_basemap("Esri.WorldImagery")
+```
+
+#### Slope Mask
+
+*Implementation steps:*
+
+Slope masking operations are performed to comply explicitly with VM0048 and VMD0055 standards, which require excluding areas exceeding a slope gradient of 10% from leakage belt delineation to prevent erroneous leakage attribution.
+
+1.  Slope data acquisition:
+    -   Utilized Digital Elevation Model (DEM) data sourced from HydroSHEDS (V2),[^9] which is derived primarily from Shuttle Radar Topography Mission (SRTM) elevation models, including products that are conditioned with void-filling, stream burning, filtering, and manual corrections to ensure hydrological integrity and accuracy. This source is recognized and approved by Verra as a credible data source for hydrological analyses and leakage delineations. Higher resolution DEMs with similar gold standard processing are also available in the ESA Copernicus collection (25m resolution) and many more. Best warehouse for publicly available and transparent methodological reporting can be found through OpenTopography platform.[^10]
+2.  Slope processing:
+    -   Calculated slope gradients from the DEM in degrees, subsequently converting these values into percent slope.
+    -   Identified and classified areas with slope gradients greater than 10%, (\> not \>=) marking them explicitly for exclusion based on criteria detailed in VM0048 (Section 8.3) and VMD0055 (Section 5.1.3, Appendix 2).
+3.  Slope mask generation:
+    -   Transformed high-gradient areas identified as invalid (\>10% slope) into polygon geometries, performing subsequent geoprocessing operations to dissolve and simplify these features, ensuring computational efficiency without compromising compliance with VMD0055 standards.
+4.  Justifying VM0048-compliance:
+    -   Documented HydroSHEDS source information, citing technical documentation explicitly regarding processing steps and geometric corrections as mandated by VM0048 and VMD0055 methodologies.
+    -   Maintained records of slope calculations workflows, mask generation processes to provide transparency, facilitate third-party verification through replication.
+
+```{r, error=F, eval=F}
+# skipping these operations here (est. time 12 mins)
+DEM = terra::rast("/Users/seamus/Library/CloudStorage/OneDrive-WinrockInternationalInstituteforAgriculturalDevelopment/20087 - RSPB Gola Feasibility/Deliverables/Spatial Data/DEM/DEM_EPSG32629.tif") 
+
+# derive slope percentage from degree 
+slope_degrees = terra::terrain(DEM, v="slope", unit="degrees")
+slope_percent = tan(slope_degrees * (pi / 180)) * 100
+slope_percent = terra::clamp(slope_percent, 0, 100) 
+slope_invalid = slope_percent > 10
+slope_invalid[slope_invalid == 0] <- NA
+slope_mask = terra::as.polygons(slope_invalid, dissolve=T)|>sf::st_as_sf()|>sf::st_union()
+
+# save locally & reload to purge cache
+sf::st_write(slope_mask, "/Users/seamus/Library/CloudStorage/OneDrive-WinrockInternationalInstituteforAgriculturalDevelopment/20087 - RSPB Gola Feasibility/Deliverables/Spatial Data/MASK/LeakageMask_Slope10%-Invalid_051625.zip", delete_dsn=T)
+slope_mask = sf::st_read("/Users/seamus/Library/CloudStorage/OneDrive-WinrockInternationalInstituteforAgriculturalDevelopment/20087 - RSPB Gola Feasibility/Deliverables/Spatial Data/MASK/Archive/LeakageMask_Slope10%-Invalid_051625/slope_poly_simplified.shp")
+
+tmap::tm_shape(leakage_belt) + tmap::tm_polygons(col="yellow",fill="yellow",fill_alpha=0.4, lwd=1.5)+ 
+  tmap::tm_shape(aoi) + tmap::tm_borders(lwd=1.5, col="red") + 
+  tmap::tm_text(text="Name", size=0.3, col="white") +
+  tmap::tm_shape(slope_mask) + tmap::tm_polygons(fill="purple", fill_alpha=0.6, lwd=0)+ 
+  tmap::tm_scalebar(position = c("RIGHT", "BOTTOM"), text.size = .5) + 
+  tmap::tm_compass(color.dark = "gray60", text.color = "gray60", position = c("left", "top")) +
+  tmap::tm_basemap("Esri.WorldImagery")
+
+```
+
+```{r, echo=F, eval=T}
+#slope polyon is too large so reverted to raster mask for mapping
+#slope_mask = sf::st_read("/Users/seamus/Library/CloudStorage/OneDrive-WinrockInternationalInstituteforAgriculturalDevelopment/20087 - RSPB Gola Feasibility/Deliverables/Spatial Data/MASK/Archive/LeakageMask_Slope10%-Invalid_051625/slope_poly_simplified.shp") |> sf::st_make_valid() |> sf::st_cast("POLYGON") |> rmapshaper::ms_simplify(keep=0.1)
+
+slope_mask = terra::rast("/Users/seamus/Library/CloudStorage/OneDrive-WinrockInternationalInstituteforAgriculturalDevelopment/20087 - RSPB Gola Feasibility/Deliverables/Spatial Data/MASK/LeakageMask_Slope10%-Raster_051625.tif")
+slope_mask[slope_mask == 0] <- NA
+#slope_mask_factor <- as.factor(slope_mask)
+levels(slope_mask) <- data.frame(ID = 1,label = "Slope Exclusion Zone")
+
+tmap::tm_shape(leakage_belt) + tmap::tm_polygons(col="yellow",fill="yellow",fill_alpha=0, lwd=1)+ 
+  tmap::tm_shape(aoi) + tmap::tm_borders(lwd=1, col="red") + 
+  tmap::tm_text(text="Name", size=0.5, col="white") +
+  tmap::tm_shape(slope_mask) + 
+  tmap::tm_raster(title = "", palette = "purple", alpha=0.35, labels="Slope Exclusion Zone") +
+  tmap::tm_scalebar(position = c("RIGHT", "BOTTOM"), text.size = .5) + 
+  tmap::tm_compass(color.dark = "gray60", text.color = "gray60", position = c("left", "top")) +
+  tmap::tm_basemap("Esri.WorldImagery")
+```
+
+### Apply Leakage Masks
+
+After creating the four masks for roads, wetlands, protected areas, slope thresholds, we applied these to the unscreened leakage belt, resulting in a leakage belt compliant with all VM0048/VMD0055 requirements. The process can be applied via successive clipping of ineligible or eligible areas, which yields the final geometry used for leakage area analysis.
+
+-   Mask application: We overlaid the unfiltered leakage belt with each exclusion mask to carve out the invalid zones. In practice, this was done by spatial difference or intersection operations: we subtracted the slope, wetland, and protected area masks from the leakage belt applying `st_difference()` function to each, and we intersected the belt with the inverse of the road mask to exclude areas within the 10km buffers surrounding roads. The result is that all areas within 10km of roads, on steep slopes \>10%, in wetlands, or in protected areas were removed. What remained is the valid leakage area – a polygon, or set of polygons, representing the leakage belt after all exclusions. We ensured that throughout this overlay process, geometry validity and topology were preserved (using st_make_valid and snapping as needed to handle any slivers created at mask boundaries). The final output was a clean leakage belt polygon meeting every required criterion.
+-   Results: We documented each masking operation and saved all resulting datasets for transparency and future audit. For example, the final filtered leakage belt shapefile was saved in the project archive. Additionally, intermediate products like the individual mask layers and the intermediate mask layers were preserved with clear filenames. This documentation aimed to ensures auditors can trace each step of the analysis, facilitating their required replication more easily. Documentation of these methods aligns with ISO 19115-1 metadata standards for data lineage, as well as ISO 19105 conformance testing guidelines, by providing evidence for each criterion applied.
+    -   The final deliverable of a valid leakage belt shapefile was saved with the filename `LeakageBelt_10km_051625.shp`.
+
+```{r, error=F, eval=F, echo=T}
+# clip
+roads_leakage           = sf::st_intersection(leakage_belt, roads_mask)
+slope_leakage           = sf::st_difference(leakage_belt, slope_mask)
+wetlands_leakage        = sf::st_difference(leakage_belt, wetlands_mask)
+protected_areas_leakage = sf::st_difference(leakage_belt, protected_areas)
+
+# It may make better sense to derive and apply these seperately for faster processing
+leakage_area_a     = sf::st_union(roads_leakage, slope_leakage)
+leakage_area_b     = sf::st_union(leakage_area_a, wetlands_leakage)
+leakage_area_valid = sf::st_union(leakage_area_b, protected_areas_leakage)
+
+# save ouput before it crashes
+sf::st_write(leakage_area_valid, "/Users/seamus/Library/CloudStorage/OneDrive-WinrockInternationalInstituteforAgriculturalDevelopment/20087 - RSPB Gola Feasibility/Deliverables/Spatial Data/LEAKAGE/Archive/LeakageBelt_10km_051625/LeakageBelt_10k-Radius_Filtered-WDPA_GLWD_SLOPE-10PC_ROADS-10KM.shp", delete_dsn=T)
+
+# Visualise
+tmap::tmap_mode("view")
+tmap::tm_shape(leakage_belt_valid) + tmap::tm_polygons(col="yellow",fill="yellow",fill_alpha=1, lwd=0) + 
+  tmap::tm_shape(country) + tmap::tm_borders(lwd=1.5, col="grey30") + 
+  tmap::tm_shape(counties) + tmap::tm_borders(lwd=0.5, col="grey70") + 
+  tmap::tm_shape(aoi) + tmap::tm_borders(lwd=0.5, col="red") + 
+  tmap::tm_basemap("Esri.WorldImagery")
+```
+
+```{r, echo=FALSE}
+leakage_belt_valid = sf::st_read("/Users/seamus/Library/CloudStorage/OneDrive-WinrockInternationalInstituteforAgriculturalDevelopment/20087 - RSPB Gola Feasibility/Deliverables/Spatial Data/LEAKAGE/Archive/LeakageBelt_10km_051625/LeakageBelt_10k-Radius_Filtered-WDPA_GLWD_SLOPE-10PC_ROADS-10KM.shp", quiet=TRUE) |> sf::st_make_valid() |> sf::st_cast()
+leakage_belt_valid$area_ha = round(as.numeric(sf::st_area(leakage_belt_valid) * 0.0001, 4))
+leakage_belt_valid$area_ha
+
+# Visualise
+tmap::tmap_mode("view")
+tmap::tm_shape(leakage_belt_valid) + tmap::tm_polygons(col="yellow",fill="yellow",fill_alpha=1, lwd=0) + 
+  tmap::tm_shape(country) + tmap::tm_borders(lwd=1.5, col="grey30") + 
+  tmap::tm_shape(counties) + tmap::tm_borders(lwd=0.5, col="grey70") + 
+  tmap::tm_shape(aoi) + tmap::tm_borders(lwd=0.5, col="red") + 
+  tmap::tm_basemap("Esri.WorldImagery")
+```
+
+#### Visual review
+
+To validate the spatial logic, we conducted a visual review of all layers using interactive maps. While static maps provided previously report confirmed inputs at a coarse scale, more useful insights may be drawn from the interactive maps below. By loading the project area, the unfiltered leakage belt, and each mask for roads, wetlands, protected areas, slope together, readers may toggle layers and inspect overlaps. This helps confirm that the masks and final leakage outputs were correctly aligned with input features and exclusion zones. In this way, we invite feedback from reviewers on further improvements or spatial updates needed, especially around settlements and boundaries where multiple exclusion criteria overlapped. In the following maps, users may verify attribute information of any target features using mouse cursor. This interactive review is a quality control step to catch any anomalies before finalizing the outputs.
+
+Map Guide:
+
+1.  Toggle individual mask layers on/off to isolate specific criteria
+2.  Zoom and pan to examine local edge effects, especially near community clusters or county boundaries where multiple exclusion zones might converge.
+3.  Inspect features by hovering or clicking, to see their attributes, such as the name of protected areas or the slope percentage of a given cell, confirming that features are correctly classified and that the clipping occurred as expected.
+
+```{r}
+# Visual check
+tmap::tmap_mode("view")
+tmap::tm_shape(leakage_belt_whole) + tmap::tm_borders(lwd=0) +
+  tmap::tm_shape(country) + tmap::tm_borders(lwd=1.5, col="grey30") + 
+  tmap::tm_shape(counties) + tmap::tm_borders(lwd=0.5, col="grey70") + 
+  tmap::tm_shape(leakage_belt) + tmap::tm_polygons(col="yellow",fill="yellow",fill_alpha=0.4, lwd=1)+ 
+  tmap::tm_shape(wetlands) + tmap::tm_raster(col.legend = tm_legend("Wetlands (GLWD")) +
+  tmap::tm_shape(waterways) + tmap::tm_lines(lwd="ORD_STRA", lwd.scale=tm_scale_asis(values.scale=0.4),col="skyblue")+ 
+  tmap::tm_shape(protected_areas) + tmap::tm_polygons(fill="ORIG_NAME",fill.legend=tm_legend("Protected Areas (WDPA)"))+
+  tmap::tm_shape(slope_mask) + tmap::tm_raster(title="", palette="purple", labels="Slope Exclusion Zone") +
+  tmap::tm_shape(roads_mask) + tmap::tm_borders(col="green", lwd=1.5) +
+  tmap::tm_shape(roads_ext) +tmap::tm_lines(col="Category",   col.legend=tm_legend("Road network")) +
+  tmap::tm_shape(aoi) + tmap::tm_borders(lwd=1, col="red") + 
+  tmap::tm_text(text="Name", size=0.5, col="beige") +
+  tmap::tm_shape(pop) + tm_symbols(size=0.4, col = "pink", id="name", popup.vars = TRUE) +
+  tmap::tm_add_legend(type="symbols", col="pink", size=1, labels="Settlments") +
+    tmap::tm_basemap("Esri.WorldImagery")
+
+```
+
+```{r, echo=F, eval=F}
+slope_mask = sf::st_read("/Users/seamus/Library/CloudStorage/OneDrive-WinrockInternationalInstituteforAgriculturalDevelopment/20087 - RSPB Gola Feasibility/Deliverables/Spatial Data/MASK/Archive/LeakageMask_Slope10%-Invalid_051625/slope_poly_simplified.shp")
+wetlands = terra::rast("/Users/seamus/Library/CloudStorage/OneDrive-WinrockInternationalInstituteforAgriculturalDevelopment/20087 - RSPB Gola Feasibility/Deliverables/Spatial Data/HABITAT/Wetlands/GLWD_EPSG32629.tif")
+protected_areas = sf::st_read("/Users/seamus/Library/CloudStorage/OneDrive-WinrockInternationalInstituteforAgriculturalDevelopment/20087 - RSPB Gola Feasibility/Deliverables/Spatial Data/HABITAT/Protected Areas/Archive/WDPA_Mar2025_Public_32629_GOLA.shp")
+
+# Visual check
+tmap::tmap_mode("view")
+#tmap::tm_basemap("OpenStreetMap") +
+tmap::tm_shape(roads_mask) + tmap::tm_borders(lwd=0) +
+  tmap::tm_shape(wetlands) + tmap::tm_raster(col.legend = tm_legend("Wetlands (GLWD")) +
+  tmap::tm_shape(leakage_belt) + tmap::tm_polygons(col="yellow",fill="yellow",fill_alpha=0.4, lwd=1.5)+ 
+  tmap::tm_shape(protected_areas) + tmap::tm_polygons(fill="ORIG_NAME", fill.legend = tm_legend("Protected Areas (WDPA)")) +
+  tmap::tm_shape(aoi) + tmap::tm_borders(lwd=1.5, col="red") + 
+  tmap::tm_text(text="Name", size=0.3, col="black") +
+  tmap::tm_shape(roads_mask) + tmap::tm_borders(col="purple") +
+  tmap::tm_scalebar(position = c("RIGHT", "BOTTOM"), text.size = .5) + 
+  tmap::tm_compass(color.dark = "gray60", text.color = "gray60", position = c("left", "top"))
+
+# slope filter is large file with dense linework that 
+# needs seperate mapping to visualize and slower rendering
+tmap::tm_shape(slope_mask) + tmap::tm_borders(col="purple") +
+  tmap::tm_shape(leakage_belt)) + tmap::tm_polygons(col="yellow",fill="yellow",fill_alpha=0.3)+ 
+  tmap::tm_shape(aoi) + tmap::tm_borders(lwd=0.2, col="white") + 
+  tmap::tm_text(text="Name", size=0.4, col="white") +
+  tmap::tm_scale_bar(position = c("RIGHT", "BOTTOM"), text.size = .5) + 
+  tmap::tm_compass(color.dark = "gray60", text.color = "gray60", position = c("left", "top"))
+```
+
+### Tally Leakage Area Features
+
+#### Intersections
+
+To inform the project's monitoring strategy and stakeholder engagement plans, we intersected the leakage area polygon with three spatial datasets: road networks, waterway networks, and village locations. Linear features were quantified by their total lengths in kilometers, while point features were counted based on their occurrence within the leakage belt.
+
+The resulting spatial visualizations enable the project team to clearly assess the distribution and density of these deforestation drivers, identifying areas at greatest risk due to human activities and physical accessibility.
+
+#### Results
+
+Quantifying infrastructure and settlement density within the leakage zone directly informs targeted leakage mitigation strategies. Understanding the spatial distribution of communities and infrastructure helps project proponents tailor interventions such as community outreach, agricultural intensification programs, and alternative livelihood development specifically aimed at reducing deforestation pressures.
+
+Our analysis revealed substantial infrastructure and population within the leakage belt:
+
+-   **Waterways**: 1,235.5 km
+
+-   **Road Network**: 2,135.5 km
+
+-   **Total Leakage Area within 10 km of Project Boundary**: 118,109 ha
+
+These findings highlight critical areas for potential leakage activity, guiding strategic interventions and resource allocation to effectively address deforestation risk.
+
+```{r, message=F, warning=F, error=F, comment=NA, eval=F}
+waterways_count_whole = sf::st_intersection(waterways, sf::st_as_sf(leakage_belt_crop))
+waterways_count_valid = sf::st_intersection(waterways, leakage_belt)
+waterways_length_whole = sum(sf::st_length(waterways_count_whole))
+waterways_length_valid = sum(sf::st_length(waterways_count_valid))
+
+road_count_whole = sf::st_intersection(roads_ext, sf::st_as_sf(leakage_belt_crop))
+road_count_valid = sf::st_intersection(roads_ext, leakage_belt)
+road_length_whole = sum(sf::st_length(road_count_whole)) + sum(sf::st_length(road_count_whole))
+road_length_valid = sum(sf::st_length(road_count_valid)) + sum(sf::st_length(road_count_valid))
+
+community_count_whole = sf::st_intersection(pop, sf::st_as_sf(leakage_belt_crop))
+community_count_valid = sf::st_intersection(pop, leakage_belt)
+
+waterways_length_whole
+waterways_length_valid
+road_length_whole
+road_length_valid
+community_count_whole
+community_count_valid
+```
+
+```{r, class.source = c("numCode", "r", "numberLines")}
+devtools::session_info()
+#Sys.getenv()
+#.libPaths()
+```
+
+[^1]:
+    -   <https://verra.org/wp-content/uploads/2023/11/VM0048-Reducing-Emissions-from-Deforestation-and-Forest-Degradation-v1.0-1-1.pdf>
+    -   <https://verra.org/wp-content/uploads/2024/10/VMD0055-Estimation-of-Emission-Reductions-from-Avoiding-Unplanned-Deforestation-v1.1-CLEAN-2024.10.21.24.pdf>
+
+[^2]: Please consult chunk text to confirm data sources, otherwise outlined in this markdown's report content
+
+[^3]: <https://epsg.io/32629>
+
+[^4]: ISO 19107:2019 Geographic information — Spatial schema <https://www.iso.org/obp/ui/#iso:std:iso:19107:ed-2:v1:en>
+
+[^5]: <https://github.com/JanCaha/r_package_qgis/blob/master/R/qgis_coveragesimplify.R>
+
+[^6]:
+    -   For interested users, options for deploying both "valid_linework" or "valid_structure" functions are available in `sf::st_make_valid(geos_method="valid_structure")` operations. However, perhaps most impressive is how the `st_intersection()` effectively exposes all overlaps, segments all invalid geometries: and assigns a vertex-based index that enables easy extraction, recovery, or reclassification of geometry errors, all of which was achieved by explicitly assigning self-intersections to the features domain. Lastly, if users prefer to quickly discard all errors and skip geometry inspections, then the `st_difference` function may be more suitable.
+
+[^7]: Douglas, D. H., & Peucker, T. K. (1973). Algorithms for the reduction of the number of points required to represent a digitized line or its caricature. *Cartographica: the international journal for geographic information and geovisualization*, *10*(2), 112-122.
+
+[^8]: <https://developers.google.com/earth-engine/datasets/catalog/WCMC_WDPA_current_polygons>
+
+[^9]:
+    -   <https://agupubs.onlinelibrary.wiley.com/doi/10.1029/2008EO100001>
+    -   <https://data.hydrosheds.org/file/technical-documentation/HydroSHEDS_TechDoc_v1_4.pdf>
+
+[^10]: <https://portal.opentopography.org/datasets>

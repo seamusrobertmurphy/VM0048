@@ -1,0 +1,4 @@
+- source: project
+  quarto-pub:
+    - id: ab4bd443-0c81-4925-8228-8a5a7aa473a7
+      url: https://seamusrobertmurphy.quarto.pub/map-templates

@@ -1,0 +1,306 @@
+---
+title: "Watershed Maps"
+execute:
+  echo: true
+format:
+  html:
+    toc: true
+    toc-location: right
+    highlight-style: pygments
+    page-layout: article
+
+editor_options: 
+  markdown: 
+    wrap: 60
+---
+
+```{r setup}
+#| warning: false
+#| message: false
+#| include: false
+#| echo: false
+#| comment: NA
+
+#install.packages("easypackages")
+easypackages::packages(
+  "bslib",
+  "caret", "cli", "cols4all", "covr", "cowplot",
+  "dendextend", "digest", "DiagrammeR", "dtwclust", "downlit",
+  "e1071", "exactextractr", "elevatr",
+  "FNN", "future",
+  "gdalcubes", "gdalUtilities", "geojsonsf", "geos", "ggplot2", "ggstats",
+  "ggspatial", "ggmap", "ggplotify", "ggpubr", "ggrepel", "giscoR",
+  "hdf5r", "httr", "httr2", "htmltools",
+  "jsonlite",
+  "kohonen",
+  "leafem", "libgeos", "luz", "lwgeom", "leaflet", "leafgl",
+  "mapedit", "mapview", "maptiles", "methods", "mgcv",
+  "ncdf4", "nnet",
+  "openxlsx",
+  "parallel", "plotly",
+  "randomForest", "rasterVis", "raster", "Rcpp", "RcppArmadillo",
+  "RcppCensSpatial", "rayshader", "RcppEigen", "RcppParallel",
+  "RColorBrewer", "reactable", "rgl", "rsconnect", "RStoolbox", "rts",
+  "s2", "sf", "scales", "sits", "spdep", "stars", "stringr", "supercells",
+  "terra", "testthat", "tidyverse", "tidyterra", "tools",
+  "tmap", "tmaptools", "terrainr",
+  "xgboost"
+)
+
+knitr::opts_chunk$set(
+  echo = TRUE, message = FALSE, warning = FALSE,
+  error = FALSE, comment = NA, tidy.opts = list(width.cutoff = 6)
+)
+options(htmltools.dir.version = FALSE, htmltools.preserve.raw = FALSE)
+mapviewOptions(fgb = FALSE)
+sf::sf_use_s2(use_s2 = FALSE)
+```
+
+```{css, echo=FALSE, class.source = 'foldable'}
+div.column {
+    display: inline-block;
+    vertical-align: top;
+    width: 50%;
+}
+
+#TOC::before {
+  content: "";
+  display: block;
+  height:200px;
+  width: 200px;
+  background-image: url('assets/outputs/06-watershed-3D.png');
+  background-size: contain;
+  background-position: 50% 50%;
+  padding-top: 80px !important;
+  background-repeat: no-repeat;
+}
+```
+
+-   Declare aoi, extent & projection
+-   Download hydro data
+-   Download DEM
+-   Render 3D map
+-   Save output
+
+## 1. AOI's & projection
+
+```{r pop-aoi}
+#| warning: false
+#| message: false
+#| echo: true
+#| eval: true
+#| comment: NA
+
+crs_master <- sf::st_crs("epsg:4326")
+aoi_site   = sf::read_sf("./assets/inputs/chilwa_watershed_4326.shp") |>
+  st_cast() |> st_transform(crs_master)
+aoi_country <- giscoR::gisco_get_countries(country = "Malawi", resolution = "3") |>
+  st_cast() |>
+  st_transform(crs_master)
+
+# Interactive map mode: "view"
+tmap::tmap_mode("view")
+tmap::tm_shape(aoi_country) +
+  tmap::tm_borders(lwd = 1, col = "green") +
+  tmap::tm_shape(aoi_site) +
+  tmap::tm_borders(lwd = 2, col = "red")
+```
+
+##### Figure 1: Interactive map showing area of interest polygons (AOI)
+
+## 2. Download hydro data
+
+```{r watershed-inputs, eval=F}
+#| warning: false
+#| message: false
+#| echo: true
+#| eval: false
+#| comment: NA
+
+#url_rivers <- "https://data.hydrosheds.org/file/HydroRIVERS/HydroRIVERS_v10_shp.zip"
+#url_lakes <- "https://data.hydrosheds.org/file/hydrolakes/HydroLAKES_polys_v10_shp.zip"
+#url_watersheds <- "https://data.hydrosheds.org/file/hydrobasins/customized_with_lakes/hybas_lake_af_lev01-12_v1c.zip"
+# download.file(url = url, path = getwd(), destfile = file_name)
+
+rivers   = terra::vect("./assets/inputs/hydro/HydroRIVERS_v10.shp") 
+lakes    = terra::vect("./assets/inputs/hydro/HydroLAKES_polys_v10.shp") 
+watershed= terra::vect("./assets/inputs/hydro/hybas_lake_af_lev04_v1c.shp")
+
+rivers_country = terra::crop(rivers, aoi_country) |> 
+  sf::st_as_sf() |> sf::st_cast() |> sf::st_transform(crs_master)
+rivers_site = terra::crop(rivers, aoi_site) |> 
+  sf::st_as_sf() |> sf::st_cast() |> sf::st_transform(crs_master)
+
+lakes_country = terra::crop(lakes, aoi_country) |> 
+  sf::st_as_sf() |> sf::st_cast() |> sf::st_transform(crs_master)
+lakes_site = terra::crop(lakes, aoi_site) |> 
+  sf::st_as_sf() |> sf::st_cast() |> sf::st_transform(crs_master)
+
+watershed_country = terra::crop(watershed, aoi_country) |> 
+  sf::st_as_sf() |> sf::st_cast() |> sf::st_transform(crs_master)
+watershed_site = terra::crop(watershed, aoi_site) |> 
+  sf::st_as_sf() |> sf::st_cast() |> sf::st_transform(crs_master)
+
+#rivers_country     = sf::st_intersection(rivers, aoi_country)
+#rivers_site        = sf::st_intersection(rivers, aoi_site)
+#lakes_country      = sf::st_intersection(lakes, aoi_country)
+#lakes_site         = sf::st_intersection(lakes, aoi_site)
+#watershed_country  = sf::st_intersection(watershed, aoi_country)
+#watershed_site     = sf::st_intersection(watershed, aoi_site)
+# reproject if NAs outputed, caution of long processing time
+# watersheds <- terra::project(watersheds, crs(aoi_site))
+
+# save extracted layers for faster runtime
+sf::st_write(rivers_country, "./assets/inputs/rivers_country.shp")
+sf::st_write(rivers_site, "./assets/inputs/rivers_site.shp")
+sf::st_write(lakes_country, "./assets/inputs/lakes_country.shp")
+sf::st_write(lakes_site, "./assets/inputs/lakes_site.shp")
+sf::st_write(watershed_country, "./assets/inputs/watershed_country.shp")
+sf::st_write(watershed_site, "./assets/inputs/watershed_site.shp")
+
+tmap::tm_shape(rivers_site) + tm_lines(col = "steelblue") +
+  tmap::tm_shape(lakes_site) + tm_fill ("steelblue") +
+  tmap::tm_shape(watershed_site) + tm_borders(col = "red", lwd=1)
+```
+
+```{r watershed-extracted, echo=F}
+#| warning: false
+#| message: false
+#| echo: false
+#| eval: true
+
+rivers_country = sf::st_read("./assets/inputs/rivers_country.shp") |> st_cast("LINESTRING")
+rivers_site    = sf::st_read("./assets/inputs/rivers_site.shp") |> st_cast("LINESTRING")
+lakes_country  = sf::st_read("./assets/inputs/lakes_country.shp") |> st_cast("POLYGON")
+lakes_site     = sf::st_read("./assets/inputs/lakes_site.shp") |> st_cast("POLYGON")
+watershed_site = sf::st_read("./assets/inputs/watershed_site.shp") |> st_cast("POLYGON")
+
+tmap::tm_shape(rivers_site) + tm_lines(col = "steelblue") +
+  tmap::tm_shape(lakes_site) + tm_fill ("steelblue") +
+  tmap::tm_shape(watershed_site) + tm_borders(col = "red", lwd=1)
+```
+
+##### Figure 2: Interactive map showing extracted hydrographic layers
+
+## 3. Download DEM
+
+```{r watershed-dem}
+#| warning: false
+#| message: false
+#| echo: true
+#| eval: true
+#| comment: NA
+
+dem_site = elevatr::get_elev_raster(
+  locations = watershed_site,
+  z = 10, clip = "locations")
+
+dem_site = dem_site |>
+  terra::rast() |>
+  terra::project(crs(watershed_site))
+
+names(dem_site)[1] <- "Elevation (m asl)"
+
+tmap::tm_shape(dem_site) + tmap::tm_raster(palette = "Greens") +
+  tmap::tm_shape(rivers_site) + tm_lines(col = "steelblue") +
+  tmap::tm_shape(lakes_site) + tm_fill ("steelblue") +
+  tmap::tm_shape(watershed_site) + tm_borders(col = "red", lwd=1)
+```
+
+##### Figure 3: Interactive map showing digital elevation model and hydrographic layers.
+
+## 4. Build 3D map
+
+```{r watershed-render}
+#| warning: false
+#| message: false
+#| echo: true
+#| eval: false
+#| comment: NA
+
+rivers_strahler = rivers_site |>
+  dplyr::mutate(
+    width = as.numeric(
+      ORD_FLOW
+    ),
+    width = dplyr::case_when(
+      width == 3 ~ 16,
+      width == 4 ~ 14,
+      width == 5 ~ 12,
+      width == 6 ~ 10,
+      width == 7 ~ 6,
+      TRUE ~ 0
+    )
+  ) |>
+  sf::st_as_sf() |>
+  sf::st_transform(crs = "epsg:4326")
+
+h <- nrow(dem_site)
+w <- ncol(dem_site)
+
+dem_matrix = rayshader::raster_to_matrix(dem_site)
+
+dem_matrix |>
+  rayshader:: height_shade() |>
+  rayshader::add_overlay(
+    rayshader::generate_line_overlay(
+      geometry   = rivers_strahler,
+      extent     = dem_site,
+      heightmap  = dem_matrix,
+      color      = "#387B9C",
+      linewidth  = rivers_strahler$width,
+      data_column_width = "width"
+      ), alphalayer = 1
+    ) |>
+  rayshader::add_overlay(
+    rayshader::generate_line_overlay(
+      geometry   = lakes_site,
+      extent     = dem_site,
+      heightmap  = dem_matrix,
+      color      = "#387B9C"
+      ), alphalayer = 1
+    ) |>
+  rayshader::plot_3d(
+    dem_matrix,
+    zscale       = 14,
+    solid        = T,
+    shadow       = T,
+    shadow_darkness = 2,
+    background   = "white",
+    windowsize   = c(600, 600),
+    zoom         = 0.6,
+    phi          = 40,
+    theta        = 0 
+  )
+```
+
+## 5. Render 3D map
+
+```{r watershed-save}
+#| eval: false
+
+rayshader::render_highquality(
+  preview        = T,
+  light          = F,
+  lightdirection = c(135, 45),
+  lightcolor = c("white"),
+  lightaltitude = 25,
+  ambient_light = 0.1,
+  rotate_env     = 0.4,
+  intensity_env  = 0.85,
+  interactive    = F,
+  parallel       = T,
+  width          = w,
+  height         = h,
+  backgroundhigh="#FFFFFF",
+  backgroundlow="#FFFFFF"
+  )
+```
+
+![Figure 4: Three-dimensional map of Lake Chilwa
+watershed](assets/outputs/06-watershed-3D.png)
+
+```{r session-info}
+#| eval: true
+devtools::session_info()
+```

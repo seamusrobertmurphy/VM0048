@@ -1,0 +1,29 @@
+---
+title: "Seamus Murphy"
+subtitle: "Forester | Data Scientist"
+image: assets/profile.jpg
+image-shape: round
+
+about:
+  id: hero-heading
+  template: trestles
+  image-shape: round
+  links:
+    - icon: linkedin
+      text: LinkedIn
+      href: https://linkedin.com/in/seamusrobertmurphy
+    - icon: github
+      text: Github
+      href: https://github.com/seamusrobertmurphy
+---
+
+::: {#hero-heading}
+
+## Education 
+
+University of London | PhD in Social Anthropology | 2015
+
+## Experience
+
+:::
+
