@@ -8,8 +8,12 @@ janitor
 kableExtra
 knitr
 openxlsx
+PROJ
+reproj
+sf
 tinytex
 tune
+terra
 ggplot2
 useful
 webshot

@@ -1,12 +1,12 @@
 ---
-title: "Leakage"
+title: "Leakage Belt"
 date: 2025-01-08
 author: 
   - name: Seamus Murphy
     orcid: 0000-0002-1792-0351 
     email: seamusrobertmurphy@gmail.com
 abstract: > 
-  A workflow for deriving jurisidictional risk-allocated deforestation mapping compliant with Verra's [VMD0055 (V1.1)](https://verra.org/wp-content/uploads/2024/10/VMD0055-Estimation-of-Emission-Reductions-from-Avoiding-Unplanned-Deforestation-v1.1-CLEAN-2024.10.21.24.pdf) module and the [VM0048 (V1.0)](https://verra.org/wp-content/uploads/2023/11/VM0048-Reducing-Emissions-from-Deforestation-and-Forest-Degradation-v1.0-1-1.pdf) consolidated methodology. This includes baseline estimates of forest change and jurisdictional allocated deforestation.
+  Geospatial methodology to delineate a VMD0055-compliant leakage belt, including procedural guidelines for meeting the VM0048 standard, an overview of data sources and their qualifying criteria, and methodological recommendations for data processing tasks and reporting accuracy metrics.
 keywords:
   - REDD+
   - VCS
@@ -35,8 +35,8 @@ readRenviron("~/.Renviron")
 pacman::p_load(
   cols4all, distill, dplyr, flextable, knitr, latex2exp, leaflet, leaflet.extras, 
   leaflet.providers, leafgl, leafem, latticeExtra, maptiles, markdowntemplates, 
-  palmerpenguins, raster, Rcpp, RcppThread, rmarkdown, rmapshaper, sf, sp, terra, tidyterra,
-  tinytex, tmap, tmaptools, xaringan, xaringanExtra)
+  palmerpenguins, PROJ, raster, Rcpp, RcppThread, reproj, rmarkdown, rmapshaper, 
+  sf, sp, terra, tidyterra, tinytex, tmap, tmaptools, xaringan, xaringanExtra)
 
 base::options(
   htmltools.dir.version = F, 
@@ -70,7 +70,7 @@ div.column {
   display: block;
   height: 60px;
   width: 200px;
-  background-image: url(https://winrock.org/wp-content/uploads/2021/12/Winrock-logo-R.png);
+  background-image: url(https://verra.org/wp-content/uploads/JNR-Logo-Tagline-Color.avif);
   background-size: contain;
   background-position: center;
   background-position: 50% 50%;
@@ -110,7 +110,7 @@ The project's expansion necessitated identifying potential zones where deforesta
 -   Computed total hectares of project sites.
 -   Final area estimates were reported below which yielded a total project footprint of 769,050 ha in the newest expansion.
 
-```{r, echo=T, message=F, warning=F, error=F, comment=NA, eval=T}
+```{r, echo=T, message=F, warning=F, error=F, comment=NA, eval=F}
 country = sf::read_sf("/Users/seamus/Library/CloudStorage/OneDrive-WinrockInternationalInstituteforAgriculturalDevelopment/20087 - RSPB Gola Feasibility/Deliverables/Spatial Data/AOI/Archive/Liberia-National-Border/liberia_boundary_national.shp", quiet=TRUE) |>sf::st_transform(32629)
 
 counties = sf::st_read("/Users/seamus/Library/CloudStorage/OneDrive-WinrockInternationalInstituteforAgriculturalDevelopment/20087 - RSPB Gola Feasibility/Deliverables/Spatial Data/AOI/Archive/Liberia-Jurisdiction-Boundaries/places_poly_county.shp", quiet=TRUE) |>sf::st_transform(32629)
@@ -152,7 +152,7 @@ aoi |> sf::st_drop_geometry() |> janitor::adorn_totals() |>
   flextable::autofit() 
 ```
 
-```{r}
+```{r, eval=FALSE}
 tmap::tmap_mode("view")
 tmap::tm_shape(aoi) + tmap::tm_borders(lwd=0.5, col="white") +
   tmap::tm_text(text="Name", size=0.5, col="white") +  
@@ -174,7 +174,7 @@ Implemented per the VM0048 and VMD0055 methodologies, the leakage belt is de
 -   All output geometries were checked and repaired systematically using the folloiwng three geometry corrections:
     -   `st_cast()`, `st_zm()`, `st_make_valid()` <!--# Note to self, need to summarize explicitly the geometry effects of each function and the limitations of systematically applying  to all shapefiles, for example zoom in and review the final leakage belt shapefile below that includes so many triangles. Alternatively, we may recommend use of ST_MakeValid(), ensuring OGC Simple Feature compliance -->
 
-```{r, message=F, warning=F, error=F, comment=NA, eval=T, echo=F}
+```{r, message=F, warning=F, error=F, comment=NA, eval=F, echo=F}
 aoi_union = sf::st_transform(aoi, 32629) |>  sf::st_union() |> sf::st_make_valid()
 leakage_belt_whole = sf::st_buffer(aoi_union, dist = 10000, endCapStyle="ROUND") |>
   sf::st_make_valid() |>  sf::st_zm() |> sf::st_cast() |> sf::st_as_sf()
@@ -212,7 +212,7 @@ tmap::tm_shape(leakage_belt) +
 #sf::st_write(leakage_belt_whole, "OneDrive.../20087 - RSPB Gola Feasibility/Deliverables/Spatial Data/LEAKAGE/Archive/LeakageBelt_10k-Radius_UnFiltered-Whole.shp")
 ```
 
-```{r, echo=F, message=F, warning=F, error=F, comment=NA, eval=T}
+```{r, echo=F, message=F, warning=F, error=F, comment=NA, eval=F}
 leakage_belt   = sf::st_read("/Users/seamus/Library/CloudStorage/OneDrive-WinrockInternationalInstituteforAgriculturalDevelopment/20087 - RSPB Gola Feasibility/Deliverables/Spatial Data/LEAKAGE/Archive/LeakageBelt_10k-Radius_UnFiltered/leakage_belt_10km_liberia_ext.shp", quiet=TRUE) 
 leakage_belt$area_ha = round(as.numeric(sf::st_area(leakage_belt) * 0.0001, 4))
 leakage_belt$Name = "Leakage Belt 10km Radius"
@@ -303,7 +303,7 @@ tmap::tm_shape(roads_mask) + tmap::tm_borders(lwd=0) +
 #sf::st_write(roads_mask, "/Users/seamus/Library/CloudStorage/OneDrive-WinrockInternationalInstituteforAgriculturalDevelopment/20087 - RSPB Gola Feasibility/Deliverables/Spatial Data/MASKS/LeakageMask_Roads_10km-Buffer_051625.shp", delete_dsn=T)
 ```
 
-```{r, echo=F}
+```{r, echo=F, eval=FALSE}
 roads_one = sf::st_read("~/Library/CloudStorage/OneDrive-WinrockInternationalInstituteforAgriculturalDevelopment/20087 - RSPB Gola Feasibility/Deliverables/Spatial Data/ROADS/Archive/roads_simplified_one.shp")
 roads_two = sf::st_read("~/Library/CloudStorage/OneDrive-WinrockInternationalInstituteforAgriculturalDevelopment/20087 - RSPB Gola Feasibility/Deliverables/Spatial Data/ROADS/Archive/roads_simplified_two.shp")
 roads_mask = sf::st_read("~/Library/CloudStorage/OneDrive-WinrockInternationalInstituteforAgriculturalDevelopment/20087 - RSPB Gola Feasibility/Deliverables/Spatial Data/MASK/Archive/LeakageMask_Roads_10km-Buffer_051625/Road_Mask_10km-Proximity_051625.shp")# |> sf::st_transform(3857) 
@@ -348,7 +348,7 @@ Habitat masks were derived using wetlands and protected area datasets confirmed 
 2.  Wetland mask generation:
     -   Converted classified wetlands into a binary mask layer, ensuring compatibility and direct alignment with VM0048/VMD0055 requirements to exclude wetlands from leakage areas.
 
-```{r, eval=T, error=F}
+```{r, eval=F, error=F}
 # Prepare shell for cropping 
 leakage_belt_crop = sf::st_as_sf(leakage_belt_whole) |> terra::vect()
 
@@ -412,7 +412,7 @@ tmap::tm_shape(leakage_belt_whole) + tmap::tm_borders(lwd=0) +
 
     -   Documentation of all masking operations and criteria applied was systematically recorded for transparency, validation, and future auditing processes, explicitly aligning with VM0048 (Sections 8.3) and VMD0055 (Section 5.1.3-5.2; Appendix 2).
 
-```{r, eval=T, error=F}
+```{r, eval=F, error=F}
 protected_areas = sf::st_read("/Users/seamus/Library/CloudStorage/OneDrive-WinrockInternationalInstituteforAgriculturalDevelopment/20087 - RSPB Gola Feasibility/Deliverables/Spatial Data/HABITAT/Protected Areas/Archive/WDPA_Mar2025_Public_32629_GOLA.shp")
 
 tmap::tmap_mode("view")
@@ -471,7 +471,7 @@ tmap::tm_shape(leakage_belt) + tmap::tm_polygons(col="yellow",fill="yellow",fill
 
 ```
 
-```{r, echo=F, eval=T}
+```{r, echo=F, eval=F}
 #slope polyon is too large so reverted to raster mask for mapping
 #slope_mask = sf::st_read("/Users/seamus/Library/CloudStorage/OneDrive-WinrockInternationalInstituteforAgriculturalDevelopment/20087 - RSPB Gola Feasibility/Deliverables/Spatial Data/MASK/Archive/LeakageMask_Slope10%-Invalid_051625/slope_poly_simplified.shp") |> sf::st_make_valid() |> sf::st_cast("POLYGON") |> rmapshaper::ms_simplify(keep=0.1)
 
@@ -522,7 +522,7 @@ tmap::tm_shape(leakage_belt_valid) + tmap::tm_polygons(col="yellow",fill="yellow
   tmap::tm_basemap("Esri.WorldImagery")
 ```
 
-```{r, echo=FALSE}
+```{r, echo=FALSE, eval=FALSE}
 leakage_belt_valid = sf::st_read("/Users/seamus/Library/CloudStorage/OneDrive-WinrockInternationalInstituteforAgriculturalDevelopment/20087 - RSPB Gola Feasibility/Deliverables/Spatial Data/LEAKAGE/Archive/LeakageBelt_10km_051625/LeakageBelt_10k-Radius_Filtered-WDPA_GLWD_SLOPE-10PC_ROADS-10KM.shp", quiet=TRUE) |> sf::st_make_valid() |> sf::st_cast()
 leakage_belt_valid$area_ha = round(as.numeric(sf::st_area(leakage_belt_valid) * 0.0001, 4))
 leakage_belt_valid$area_ha
@@ -546,7 +546,7 @@ Map Guide:
 2.  Zoom and pan to examine local edge effects, especially near community clusters or county boundaries where multiple exclusion zones might converge.
 3.  Inspect features by hovering or clicking, to see their attributes, such as the name of protected areas or the slope percentage of a given cell, confirming that features are correctly classified and that the clipping occurred as expected.
 
-```{r}
+```{r, eval=FALSE}
 # Visual check
 tmap::tmap_mode("view")
 tmap::tm_shape(leakage_belt_whole) + tmap::tm_borders(lwd=0) +

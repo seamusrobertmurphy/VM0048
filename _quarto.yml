@@ -4,21 +4,20 @@ project:
 website:
   title: "VM0048"
   open-graph: true # https://quarto.org/docs/websites/website-tools.html#open-graph
-  page-footer: "Made with ❤️ and Quarto"
+  page-footer:
+    left: "[Source](https://github.com/seamusrobertmurphy/VM0048)"
   navbar:
     title: "VM0048"
     search: true
     right:
       - text: "Home"
         href: index.qmd
-      - text: "Deforestation Risk"
+      - text: "Baseline"
+        href: baseline.qmd
+      - text: "Risk"
         href: deforisk.qmd
       - text: "Leakage"
-        href: leakages.qmd
-      - text: "Watershed Maps"
-        href: watershed-map.qmd
-      - text: "Population Maps"
-        href: population-map.qmd
+        href: leakage.qmd
     tools:
       - icon: github
         menu:
@@ -26,6 +25,8 @@ website:
             href: https://github.com/seamusrobertmurphy/VM0048
           - text: Report a Bug
             href: https://github.com/seamusrobertmurphy/VM0048/issues
+          - text: Repo Collection
+            href: https://github.com/seamusrobertmurphy/
       - icon: linkedin
         href: https://linkedin.com/in/seamusrobertmurphy
       
@@ -36,21 +37,19 @@ website:
       contents:
       - text: "Home"
         href: index.qmd
-      - text: "Deforestation Risk"
+      - text: "Baseline"
+        href: baseline.qmd
+      - text: "Risk"
         href: deforisk.qmd
       - text: "Leakage"
         href: leakage.qmd
-      - text: "Watershed Maps"
-        href: watershed-map.qmd
-      - text: "Population Maps"
-        href: population-map.qmd
       - section: "About"
         contents:
           - text: "Resume"
             href: about.qmd
-          - text: "Projects"
-            href: projects.qmd
-            
+          - text: "Teaching"
+            href: teaching/index.qmd
+
 format:
   html:
     theme: [cosmo, styles.scss]

@@ -34,17 +34,9 @@ engine: knitr
 #| include: false
 #| echo: false
 
-devtools::install_github("r-spatial/sf", configure.args = c(
-  "--with-gdal-config=/opt/local/bin/gdal-config", 
-  "--with-proj-include=/opt/local/lib/proj9/include", 
-  "--with-proj-lib=/opt/local/lib/proj9/lib", 
-  "--with-geos-config=/opt/local/bin/geos-config"))
+#devtools::install_github("r-spatial/sf", configure.args = c("--with-gdal-config=/opt/local/bin/gdal-config", "--with-proj-include=/opt/local/lib/proj9/include", "--with-proj-lib=/opt/local/lib/proj9/lib", "--with-geos-config=/opt/local/bin/geos-config"))
 
-install.packages('terra', type="source", configure.args = c(
-  "--with-gdal-config=/opt/local/bin/gdal-config", 
-  "--with-proj-include=/opt/local/lib/proj9/include", 
-  "--with-proj-lib=/opt/local/lib/proj9/lib", 
-  "--with-geos-config=/opt/local/bin/geos-config"))
+#install.packages('terra', type="source", configure.args = c("--with-gdal-config=/opt/local/bin/gdal-config", "--with-proj-include=/opt/local/lib/proj9/include", "--with-proj-lib=/opt/local/lib/proj9/lib", "--with-geos-config=/opt/local/bin/geos-config"))
 
 
 pacman::p_load(
@@ -92,6 +84,7 @@ div.column {
   display: block;
   height:200px;
   width: 200px;
+  background-image: url(https://verra.org/wp-content/uploads/JNR-Logo-Tagline-Color.avif);
   background-size: contain;
   background-position: 50% 50%;
   padding-top: 80px !important;
@@ -99,7 +92,7 @@ div.column {
 }
 ```
 
-The following documents examples of *Import AOI & visualize:*
+*Import AOI & visualize:*
 
 ```{r, eval=F}
 set.seed(77777)
@@ -2344,7 +2337,7 @@ raster::writeRaster(LULC_LIBERIA_2024,"./data/LULC/LULC_LIBERIA_2024-01-16x.tif"
   format = "GTiff",overwrite = T)
 ```
 
-#### *Appendix II: Runtime snapshot*
+#### Appendix II: Runtime snapshot
 
 ```{r, eval=F}
 devtools::session_info()

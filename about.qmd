@@ -1,12 +1,11 @@
 ---
 title: "Seamus Murphy"
-subtitle: "Forester | Data Scientist"
+subtitle: "REDD+ Consultant | Registered Forester"
 image: assets/profile.jpg
 image-shape: round
-
 about:
   id: hero-heading
-  template: trestles
+  template: jolla
   image-shape: round
   links:
     - icon: linkedin
@@ -18,12 +17,4 @@ about:
 ---
 
 ::: {#hero-heading}
-
-## Education 
-
-University of London | PhD in Social Anthropology | 2015
-
-## Experience
-
 :::
-
