@@ -1,0 +1,1165 @@
+---
+title: "Deforestation Risk"
+date: 2025-01-04
+author: 
+  - name: Seamus Murphy
+    orcid: 0000-0002-1792-0351 
+    email: seamusrobertmurphy@gmail.com
+abstract: > 
+  A workflow for deriving jurisidictional risk-allocated deforestation mapping compliant with Verra's [VMD0055 (V1.1)](https://verra.org/wp-content/uploads/2024/10/VMD0055-Estimation-of-Emission-Reductions-from-Avoiding-Unplanned-Deforestation-v1.1-CLEAN-2024.10.21.24.pdf) module and the [VM0048 (V1.0)](https://verra.org/wp-content/uploads/2023/11/VM0048-Reducing-Emissions-from-Deforestation-and-Forest-Degradation-v1.0-1-1.pdf) consolidated methodology. This includes baseline estimates of forest change and jurisdictional allocated deforestation.
+keywords:
+  - REDD+
+  - VCS
+  - Verra
+  - Carbon verification
+  - Jurisdictional
+format: 
+  html:
+    toc: true
+    toc-location: right
+    toc-title: "**Contents**"
+    toc-depth: 5
+    toc-expand: 4
+    theme: [minimal, styles.scss]
+highlight-style: github
+df-print: kable
+bibliography: references.bib
+engine: knitr
+---
+
+```{r setup}
+#| warning: false
+#| message: false
+#| error: false
+#| include: false
+#| echo: false
+
+#devtools::install_github("r-spatial/sf", configure.args = c("--with-gdal-config=/opt/local/bin/gdal-config", "--with-proj-include=/opt/local/lib/proj9/include", "--with-proj-lib=/opt/local/lib/proj9/lib", "--with-geos-config=/opt/local/bin/geos-config"))
+
+#install.packages('terra', type="source", configure.args = c("--with-gdal-config=/opt/local/bin/gdal-config", "--with-proj-include=/opt/local/lib/proj9/include", "--with-proj-lib=/opt/local/lib/proj9/lib", "--with-geos-config=/opt/local/bin/geos-config"))
+
+
+pacman::p_load(
+  "animation",
+  "bibtex",
+  "BIOMASS",
+  "dataMaid",
+  "dplyr",
+  "extrafont",
+  "geodata",
+  "ggmap",
+  "htmltools",
+  "httr2",
+  "janitor",
+  "kableExtra",
+  "knitr",
+  "openxlsx",
+  "osmdata",
+  "PROJ",
+  "readxl", "reproj", "rtnorm", 
+  "sf",
+  "tinytex", "tune", "terra",
+  "useful", "webshot", "webshot2")
+
+knitr::opts_chunk$set(
+  echo = TRUE, 
+  message = FALSE, 
+  warning = FALSE,
+  error = TRUE, 
+  comment = NA, 
+  tidy.opts = list(
+    width.cutoff = 60)
+  ) 
+
+sf::sf_use_s2(use_s2 = FALSE)
+options(htmltools.dir.version = FALSE, 
+        htmltools.preserve.raw = FALSE)
+```
+
+```{css, echo=FALSE, class.source = 'foldable', eval=F}
+div.column {
+    display: inline-block;
+    vertical-align: top;
+    width: 50%;
+}
+
+#TOC::before {
+  content: "";
+  display: block;
+  height:200px;
+  width: 200px;
+  background-image: url(https://verra.org/wp-content/uploads/JNR-Logo-Tagline-Color.avif);
+  background-size: contain;
+  background-position: 50% 50%;
+  padding-top: 80px !important;
+  background-repeat: no-repeat;
+}
+```
+
+## 1. Introduction
+
+This assessment develops a spatially explicit deforestation risk map and allocation framework for Bong County, Liberia, following Verra's VM0048 methodology requirements. The analysis integrates the baseline emissions estimates developed in the previous workflow with spatial risk modeling to allocate jurisdictional deforestation across the landscape based on empirically-derived risk factors.
+
+This analysis maintains consistency with the baseline emissions assessment by focusing exclusively on Bong County (8,772 km²), located in west-central Liberia. The county encompasses diverse forest-agricultural landscapes within the Upper Guinea Forest biodiversity hotspot, representing typical West African deforestation pressures including:
+
+-   Agricultural expansion (primarily rice and cassava)
+-   Small-scale logging and charcoal production
+-   Road development and settlement expansion
+-   Mining activities (iron ore and artisan mining)
+
+## 2. Method
+
+Four-step process:
+
+1.  Covariate Development: Process infrastructure, demographic, and biophysical risk data layers
+2.  Statistical Evaluation: Check covariate magnitude to historical deforestation
+3.  Model Development: Empirically weighted risk model generation
+4.  Deforestation Allocation: Spatial distribution of baseline deforestation rates based on risk surfaces
+
+```{r}
+#| message: false
+#| warning: false
+#| error: false
+#| eval: true
+#| echo: true
+#| comment: NA
+
+# Import & reproject to OSM grid systems
+aoi_country = geodata::gadm(country="LBR", level=0, path="./assets/AOI") |> sf::st_as_sf() |> sf::st_transform("EPSG:3857")
+aoi_states  = geodata::gadm(country="LBR", level=1, path="./assets/AOI") |> sf::st_as_sf() |>
+  dplyr::filter(NAME_1 == "Bong") |> sf::st_transform("EPSG:3857")
+crs_master = sf::st_crs(aoi_country)
+  
+# Total extent
+area_km2 = as.numeric(sf::st_area(aoi_states)) / 1e6
+cat("Study Area: Bong County, Liberia\n")
+cat("Study Area:", round(area_km2, 0), "km²\n")
+
+# Visualize AOI
+tmap::tmap_mode("view")
+tmap::tm_shape(aoi_country) + tmap::tm_borders(col="purple", lwd=2) +
+  tmap::tm_shape(aoi_states) + tmap::tm_borders(col="red", lwd=1) +
+  tmap::tm_scalebar(position=c("RIGHT", "BOTTOM"), text.size = .5) +
+  tmap::tm_title("AOI Jurisdictional Boundaries", size=.8) + 
+  tmap::tm_basemap("OpenTopoMap") 
+```
+
+#### Area check
+
+In Liberia, the official definition of forest land is provided by the Forestry Development Authority [@governmentofliberia2019], including areas of land that meet the following criteria:
+
+-   Canopy cover of minimum 30%;
+-   Canopy height of minimum 5m or the capacity to reach it;
+-   Covering a minimum of 1 hectare of land.
+
+```{r}
+#| warning: false
+#| message: false
+#| echo: true
+#| eval: true
+#| comment: NA
+
+forest_2024=terra::rast("./assets/LULC/outputs/forest_2024.tif")
+forest_2024_poly=terra::as.polygons(forest_2024) |> sf::st_as_sf()
+forest_2024_poly$area_ha = round(as.numeric(sf::st_area(forest_2024_poly) * 0.0001, 4))
+forest_2024_poly |> sf::st_drop_geometry() |> janitor::adorn_totals() 
+slivers = forest_2024_poly |> dplyr::filter(as.numeric(area_ha) < 1)  
+slivers 
+# no artefacts found??
+```
+
+------------------------------------------------------------------------
+
+#### Covariates Development
+
+The following spatial covariates were processed as potential drivers of deforestation risk. Covariates were merged between sociodemographic and geographic datasets surrounding the project area and national level datasets beyond the project area in order to enable jurisdictions analysis.
+
+###### *Forest Edge Distance*
+
+```{r}
+# Derive distance-to-edge raster
+forest_2024 = terra::rast("./data/BINARY/forest_2024.tif")
+forest_mask <- terra::classify(forest_2024, cbind(c(1,0), c(1,NA)))
+nonForest_mask <- terra::classify(forest_2024, cbind(c(1,0), c(NA,1)))
+writeRaster(forest_mask, "./data/BINARY/forest_mask.tif", overwrite=T)
+writeRaster(nonForest_mask, "./data/BINARY/nonForest_mask.tif", overwrite=T)
+forest_for_distance <- forest_mask
+16
+forest_for_distance_raster <- raster::raster(forest_for_distance)
+distance_to_edge <- distance(forest_for_distance_raster, filename="./data/BINARY/distance_to_edge_unix.tif")
+# Derive distance-to-feature rasters
+```
+
+###### *Built Environment*
+
+```{r}
+#| warning: false
+#| message: false
+#| echo: true
+#| eval: true
+#| comment: NA
+
+# Check OSM data & derive bbox window
+osmdata::available_features()  
+osmdata::available_tags("place")
+aoi_bbox = osmdata::getbb("Liberia")
+
+# Hospitals
+buildings_hospital = aoi_bbox |> osmdata::opq() |>
+  osmdata::add_osm_feature(key = "amenity", value = "hospital") |>
+  osmdata::osmdata_sf() # |> st_transform(crs_master)
+
+# Housing
+buildings_residential = aoi_bbox |> osmdata::opq() |>
+  osmdata::add_osm_feature(key = "building", value = "residential") |>
+  osmdata::osmdata_sf() # |> st_transform(crs_master)
+
+# Religion
+buildings_workship = aoi_bbox |> osmdata::opq() |>
+  osmdata::add_osm_feature(key = "building", value = "religious") |>
+  osmdata::osmdata_sf() 
+
+# Towns 
+townnames = aoi_bbox |> osmdata::opq() |>
+  osmdata::add_osm_feature(key = "place", value = "town") |>
+  osmdata::osmdata_sf()
+
+# Villages
+villages = aoi_bbox |> osmdata::opq() |>
+  osmdata::add_osm_feature(key = "place", value = "village") |>
+  osmdata::osmdata_sf()
+
+# Merging built collections
+places_merged = townnames$osm_points |> bind_rows(villages$osm_points) |>
+  group_by(across(-geometry)) |> sf::st_cast("POINT") |>
+  summarise(geometry = st_union(geometry), .groups = "drop")
+sf::st_write(places_merged, "./03_Spatial_Data/POP/places_merged.shp", delete_dsn=T) 
+
+buildings_merged = buildings_hospital$osm_points |>
+  bind_rows(buildings_residential$osm_points, buildings_workship$osm_points) |>
+  group_by(across(-geometry)) |> sf::st_cast("POINT") |>
+  summarise(geometry = st_union(geometry), .groups = "drop")
+sf::st_write(buildings_merged, "./03_Spatial_Data/POP/buildings_merged.shp", delete_dsn=T) 
+
+# Visualize
+tmap::tm_shape(aoi_country) + tmap::tm_borders(col="purple", lwd=1) +
+  tmap::tm_shape(aoi_states) + tmap::tm_borders(col="purple", lwd=.5) +
+#  tmap::tm_shape(buildings_merged) + tmap::tm_symbols(size=0.15,lwd=0.5,fill="white",col="purple") +
+#  tmap::tm_add_legend(type="symbols", col="white", fill="purple", size=0.8, labels="Buildings") +
+  tmap::tm_shape(places_merged) + tmap::tm_symbols(size=0.2,lwd=0.5,fill="white",col="blue") +
+  tmap::tm_add_legend(type="symbols", col="white", fill="blue", size=0.8, labels="Towns & Villages") +
+  tmap::tm_scalebar(position=c("RIGHT", "BOTTOM"), text.size = .5) +
+  tmap::tm_compass(color.dark="gray60",text.color="gray60",position=c("RIGHT", "top")) +
+  tmap::tm_graticules(lines=T,labels.rot=c(0,90),lwd=0.2) +
+  tmap::tm_layout(legend.position=c("left", "top"), legend.bg.color = "white") +
+  tmap::tm_title("Risk Covariates Map: Built Environment", size=.8) + 
+  tmap::tm_basemap("OpenStreetMap") 
+  #tmap::tm_basemap("OpenTopoMap") 
+  #tmap::tm_basemap("Esri.WorldImagery") 
+```
+
+```{r, eval=F, echo=F}
+pop_url <- "https://jeodpp.jrc.ec.europa.eu/ftp/jrc-opendata/GHSL/GHS_POP_GLOBE_R2023A/GHS_POP_E2025_GLOBE_R2023A_54009_1000/V1-0/GHS_POP_E2025_GLOBE_R2023A_54009_1000_V1_0.zip" 
+osm_url <- "https://download.geofabrik.de/africa/liberia-latest-free.shp.zip" 
+
+##### Built Environment
+places_points_project=sf::st_read("./data/Winrock_GIS/Communities_8km.shp")|>
+  st_cast("POINT")|>dplyr::select(name,fclass)|>rename(place=fclass)|>
+  mutate(place = as.factor(place)) |> mutate(name = as.character(name))
+
+places_points_liberia_1=sf::st_read("./data/liberia-osmdata/liberia_point.shp")|>
+  st_cast("POINT")|>sf::st_intersection(country)|>
+  dplyr::select(name,place)|>
+  dplyr::mutate(place = as.factor(place)) |> 
+  dplyr::mutate(name = as.character(name))
+
+places_points_liberia_2 <- sf::st_read("./data/liberia-osmdata/gis_osm_places_free_1.shp")|>
+  st_cast("POINT")|>sf::st_intersection(country)|>
+  dplyr::select(name,fclass)|>
+  dplyr::rename(place=fclass)|>
+  dplyr::mutate(place = as.factor(place))|> 
+  dplyr::mutate(name = as.character(name))
+
+places_worship <- sf::st_read("./data/liberia-osmdata/gis_osm_pofw_free_1.shp") |>
+  sf::st_intersection(country)|>
+  dplyr::select(name,fclass)|>
+  dplyr::rename(creed=fclass) |> 
+  dplyr::mutate(creed=as.factor(creed))  |> 
+  dplyr::mutate(name = as.character(name)) |> 
+  st_cast("POINT")
+
+places_points <- places_points_project %>%
+  bind_rows(places_points_liberia_1,places_points_liberia_2, places_worship) %>%
+  group_by(across(-geometry)) %>%
+  summarise(geometry = st_union(geometry), .groups = "drop")
+places_points = sf::st_cast(places_points, "POINT")
+sf::st_write(places_points, "./data/covariates/places_points.shp", delete_dsn=T)
+
+##### Administrative Boundaries
+places_poly_liberia <- sf::st_read("./data/liberia-osmdata/liberia_poly.shp")|>st_cast("GEOMETRY")
+places_poly_county <- places_poly_liberia[st_geometry_type(places_poly_liberia) %in% c("POLYGON", "MULTIPOLYGON"), ] |>
+  sf::st_intersection(country)|>
+  dplyr::select(name,place,admin_leve)|>
+  dplyr::mutate(place = as.factor(place)) |> 
+  dplyr::mutate(name = as.character(name)) |>
+  dplyr::rename(admin_level = admin_leve) |>
+  dplyr::filter(admin_level == "4") 
+places_poly_county <- places_poly_county[st_geometry_type(places_poly_county) %in% c("POLYGON", "MULTIPOLYGON"), ] |>
+  sf::st_cast("MULTIPOLYGON")
+sf::st_write(places_poly_county, "./data/covariates/places_poly_county.shp", delete_dsn=T)  
+
+places_poly_district <- places_poly_liberia[st_geometry_type(places_poly_liberia) %in% c("POLYGON", "MULTIPOLYGON"), ] |>
+  st_cast("POLYGON")|>sf::st_intersection(country)|>
+  dplyr::select(name,place,admin_leve)|>
+  dplyr::mutate(place = as.factor(place)) |> 
+  dplyr::mutate(name = as.character(name)) |>
+  dplyr::rename(admin_level = admin_leve) |>
+  dplyr::filter(admin_level == "6")
+places_poly_district <- places_poly_district[st_geometry_type(places_poly_district) %in% c("POLYGON", "MULTIPOLYGON"), ] |>
+  sf::st_cast("MULTIPOLYGON")
+sf::st_write(places_poly_district, "./data/covariates/places_poly_district.shp", delete_dsn=T)  
+
+buildings_private <- sf::st_read("./data/liberia-osmdata/gis_osm_buildings_a_free_1.shp") |> 
+  sf::st_intersection(country) |> sf::st_simplify(preserveTopology = FALSE, dTolerance = 1000) |>
+  dplyr::select(name,fclass) |>
+  dplyr::rename(place = fclass) |> 
+  dplyr::mutate(place = as.factor(place))|> 
+  dplyr::mutate(name = as.character(name)) |>
+  st_cast("MULTIPOLYGON") 
+sf::st_write(buildings_private, "./data/covariates/buildings_private.shp", delete_dsn=T)
+
+buildings_public <- sf::st_read("./data/liberia-osmdata/gis_osm_pois_a_free_1.shp")  |>
+  sf::st_intersection(country) |>
+  dplyr::select(name,fclass) |>
+  dplyr::rename(place = fclass) |> 
+  dplyr::mutate(place = as.factor(place))|> 
+  dplyr::mutate(name = as.character(name)) |>
+  st_cast("MULTIPOLYGON") 
+sf::st_write(buildings_public, "./data/covariates/buildings_public.shp", delete_dsn=T)
+
+buildings_merged <- buildings_private |> bind_rows(buildings_public) |>
+  group_by(across(-geometry)) |> summarise(geometry = st_union(geometry), .groups = "drop")
+buildings_merged = sf::st_cast(buildings_merged, "POLYGON")
+sf::st_write(buildings_merged, "./data/covariates/buildings.shp", delete_dsn=T)
+
+
+###### Waterways 
+waterways_liberia = sf::st_read("./data/liberia-osmdata/gis_osm_waterways_free_1.shp") |>
+  sf::st_intersection(bbox_country) |>
+  dplyr::select(name,fclass) |>
+  dplyr::mutate(fclass = as.factor(fclass))|> 
+  dplyr::mutate(name = as.character(name))
+waterways_liberia <- waterways_liberia[st_geometry_type(waterways_liberia) %in% c("LINESTRING", "MULTILINESTRING"), ] |>
+  st_cast("MULTILINESTRING") 
+
+waterways_project = sf::st_read("./data/Winrock_GIS/PA_river.shp") |>
+  sf::st_intersection(bbox_country) |>
+  dplyr::select(name,fclass) |>
+  dplyr::mutate(fclass = as.factor(fclass))|> 
+  dplyr::mutate(name = as.character(name))
+waterways_project <- waterways_project[st_geometry_type(waterways_project) %in% c("LINESTRING", "MULTILINESTRING"), ] |>
+  st_cast("MULTILINESTRING") 
+
+waterways_hydrosheds = sf::st_read("/Users/seamus/repos/rspb-redd-risk-new/data/hydro/HydroRIVERS_v10_af.shp") |> 
+  sf::st_intersection(bbox_country)
+waterways_hydrosheds <- waterways_hydrosheds[st_geometry_type(waterways_hydrosheds) %in% c("LINESTRING", "MULTILINESTRING"), ] |>
+  st_cast("MULTILINESTRING") 
+    
+waterways_merged <- waterways_liberia |> bind_rows(waterways_project) |>
+  group_by(across(-geometry)) |> summarise(geometry = st_union(geometry), .groups = "drop")
+waterways_merged = sf::st_cast(waterways_merged, "MULTILINESTRING")
+sf::st_write(waterways_merged, "./data/covariates/waterways_merged.shp", delete_dsn=T)
+
+waterbodies_collection = sf::st_read("./data/liberia-osmdata/gis_osm_water_a_free_1.shp") |> 
+  sf::st_intersection(bbox_country) |>
+  dplyr::select(name,fclass) |>
+  dplyr::mutate(fclass = as.factor(fclass))|> 
+  dplyr::mutate(name = as.character(name))
+waterbodies_poly <- waterbodies_collection[st_geometry_type(waterbodies_collection) %in% c("POLYGON", "MULTIPOLYGON"), ] 
+waterbodies_lines <- waterbodies_collection[st_geometry_type(waterbodies_collection) %in% c("LINESTRING", "MULTILINESTRING"), ] 
+waterbodies_poly_lines = sf::st_boundary(waterbodies_poly)
+
+waterbodies_waterways_merged <- waterbodies_lines |> bind_rows(waterbodies_poly_lines, waterways_merged) |>
+  group_by(across(-geometry)) |> summarise(geometry = st_union(geometry), .groups = "drop")
+waterbodies_waterways_merged = sf::st_cast(waterbodies_waterways_merged, "MULTILINESTRING")
+sf::st_write(waterbodies_waterways_merged, "./data/covariates/waterbodies_waterways_merged.shp", delete_dsn=T)
+
+
+###### Transport & Infrastructure
+transport=sf::st_read("./data/liberia-osmdata/gis_osm_transport_a_free_1.shp")|> st_boundary()|>
+  sf::st_intersection(bbox_country_2) |>
+  dplyr::select(name,fclass) |>
+  dplyr::mutate(fclass = as.factor(fclass))|> 
+  dplyr::mutate(name = as.character(name))
+
+railways = sf::st_read("./data/liberia-osmdata/gis_osm_railways_free_1.shp") |>
+  sf::st_intersection(bbox_country_2) |>
+  dplyr::select(name,fclass) |>
+  dplyr::mutate(fclass = as.factor(fclass))|> 
+  dplyr::mutate(name = as.character(name))
+
+roads_liberia = sf::st_read("./data/liberia-osmdata/gis_osm_roads_free_1.shp") |>
+  sf::st_intersection(bbox_country_2) |>
+  dplyr::select(name,fclass) |>
+  dplyr::mutate(fclass = as.factor(fclass))|> 
+  dplyr::mutate(name = as.character(name))
+
+roads_project = sf::st_read("./data/Winrock_GIS/PA_roads.shp") |>
+  sf::st_intersection(bbox_country_1) |>
+  dplyr::select(name,fclass) |>
+  dplyr::mutate(fclass = as.factor(fclass))|> 
+  dplyr::mutate(name = as.character(name))
+
+roads_rail_transport_merged <- transport |> 
+  bind_rows(railways, roads_liberia, roads_project) |>
+  group_by(across(-geometry)) |> 
+  summarise(geometry = st_union(geometry), .groups = "drop")
+
+roads = sf::st_cast(roads_rail_transport_merged, "MULTILINESTRING")
+sf::st_write(roads, "./data/covariates/roads_rail_transport_merged.shp", delete_dsn=T)
+
+roads <- roads |> bind_rows(roads_sle) |> group_by(across(-geometry)) |> 
+  summarise(geometry = st_union(geometry), .groups = "drop")
+sf::st_write(roads, "./data/covariates/roads_intl.shp", delete_dsn=T)
+
+roads_lib = sf::st_read("./data/covariates/roads_intl.shp") |> st_cast("MULTILINESTRING")
+roads_sle = sf::st_read("./data/liberia-osmdata/hotosm_sle_roads_lines_shp.shp") |>st_cast("MULTILINESTRING")
+roads_lib   = sf::st_intersection(roads_lib, bbox_aoi_2)|>dplyr::select(name)
+roads_sle   = sf::st_intersection(roads_sle, bbox_aoi_2)|>dplyr::select(name)
+roads   = rbind(roads_lib, roads_sle)
+sf::st_write(roads, "./data/ROADS/roads.shp", delete_layer=T)
+
+roads_lib = sf::st_intersection(roads_lib, bbox_aoi_2)
+roads_sle = sf::st_intersection(roads_sle, bbox_aoi_2)
+
+tmap::tm_shape(roads_clip) + tmap::tm_lines(col="orange", lwd=0.6) + tmap::tm_shape(aoi) + tm_borders(col="red", lwd=1.7)
+
+##### Slope / Elevation
+dem   = raster::subset(STACK, "DEM")
+slope_tangent = raster::terrain(
+  dem, opt="slope",unit="tangent",neighbors=8,filename="./data/DEM/slope_tangent.tif")
+slope_tangent = terra::rast("./data/DEM/slope_tangent.tif")
+slope_percent = slope_tangent * 100
+slope_percent = terra::clamp(slope_percent, 0, 100) 
+slope_percent = raster::raster(slope_percent)
+raster::writeRaster(slope_percent, "./data/covariates/slope_percent.tif")
+
+urban <- terra::mask(LULC_LIBERIA_2024, LULC_LIBERIA_2024 == 4, maskvalue = FALSE)
+urban <- raster::raster(urban)
+raster::writeRaster(urban, "./data/covariates/urban.tif", overwrite=T)
+
+
+
+#### assemble covariates
+population    = stars::read_stars("./data/covariates/liberia_population.tif")
+slope         = stars::read_stars("./data/covariates/slope_percent.tif")
+urban         = stars::read_stars("./data/covariates/urban.tif")
+counties      = sf::st_read("./data/covariates/places_poly_county.shp")
+districts     = sf::st_read("./data/covariates/places_poly_district.shp")
+places        = sf::st_read("./data/covariates/places_points.shp")
+transport     = sf::st_read("./data/covariates/roads_rail_transport_merged.shp")
+waterways     = sf::st_read("./data/covariates/waterbodies_waterways_merged.shp")
+buildings     = sf::st_read("./data/covariates/buildings_merged.shp")
+
+
+tmap::tmap_mode("view")
+tmap::tm_shape(country) + tmap::tm_borders(lwd = 2, col="black") +
+  tmap::tm_shape(transport) + tmap::tm_lines(col = "orange", lwd=0.9) +
+  tmap::tm_add_legend(type="line", col="orange", labels = "Roads/Rail") +
+  tmap::tm_shape(places) +
+  tmap::tm_dots(col="place", palette=cols4all::c4a("misc.okabe"), id="name", size = 0.001, shape=19, legend.show=T) +
+  tmap::tm_shape(counties) + tmap::tm_borders(lwd = 0.8, col="darkgreen") +
+  tmap::tm_text("name", just = "center", col="black", size=0.9) +
+  tmap::tm_shape(waterways) + tmap::tm_lines(col = "dodgerblue3") +
+  tmap::tm_add_legend(type="line", col="dodgerblue3", labels = "Waterways") +
+#  tmap::tm_shape(waterpoly) + tmap::tm_fill(col = "blue") +
+  tmap::tm_shape(aoi) + tmap::tm_borders(lwd = 1.2, col = "red") +
+  tmap::tm_text("NAME", just = "left", col="red", size=1) +
+  tmap::tm_graticules(lines=T,labels.rot=c(0,90),lwd=0.2) +
+  tmap::tm_credits("EPSG:4326", position = c("left", "bottom")) +
+  tmap::tm_scale_bar(position=c("RIGHT", "BOTTOM"), text.size = .5) + 
+  tmap::tm_compass(color.dark="gray60",text.color="gray60",position=c("RIGHT", "top")) +
+  tmap::tm_basemap("Esri.WorldImagery") -> tm88
+tm88
+
+tmap::tm_shape(country) + tmap::tm_borders(lwd = 0) +
+  tmap::tm_shape(population) +
+  tmap::tm_raster(
+    style   = "fixed",
+    alpha   = 1,
+    palette = cols4all::c4a("seq", "OrRd"),
+    title   = "People/sqkm",
+    breaks  = c(0, 0.01, 10, 100, 200, 1000, 2000, 20000)) +
+  tmap::tm_graticules(lines=T,labels.rot=c(0,90),lwd=0.2) +
+  tmap::tm_credits("EPSG:4326", position = c("left", "bottom")) +
+  tmap::tm_scale_bar(position=c("RIGHT", "BOTTOM"), text.size = .5) + 
+  tmap::tm_compass(color.dark="gray60",text.color="gray60",position=c("RIGHT", "top")) -> tm3
+
+tmap::tm_shape(slope) +
+  tmap::tm_raster("slope_percent.tif",style="fixed",breaks=c(0, 5, 15, 20, 30, 50, 100), title   = "Slope %") +
+  tmap::tm_graticules(lines=T,labels.rot=c(0,90),lwd=0.2) +
+  tmap::tm_credits("EPSG:4326", position = c("left", "bottom")) +
+  tmap::tm_scale_bar(position=c("RIGHT", "BOTTOM"), text.size = .5) + 
+  tmap::tm_compass(color.dark="gray60",text.color="gray60",position=c("RIGHT", "top")) -> tm4
+
+tmap::tm_shape(deforestation) +
+  tmap::tm_raster("forest_loss_2014_2024.tif", title   = "Forest Loss") +
+  tmap::tm_graticules(lines=T,labels.rot=c(0,90),lwd=0.2) +
+  tmap::tm_credits("EPSG:4326", position = c("left", "bottom")) +
+  tmap::tm_scale_bar(position=c("RIGHT", "BOTTOM"), text.size = .5) + 
+  tmap::tm_compass(color.dark="gray60",text.color="gray60",position=c("RIGHT", "top")) -> tm5
+
+tmap::tm_shape(urban) +
+  tmap::tm_raster("urban.tif",title   = "Urban Areas") +
+  tmap::tm_graticules(lines=T,labels.rot=c(0,90),lwd=0.2) +
+  tmap::tm_credits("EPSG:4326", position = c("left", "bottom")) +
+  tmap::tm_scale_bar(position=c("RIGHT", "BOTTOM"), text.size = .5) + 
+  tmap::tm_compass(color.dark="gray60",text.color="gray60",position=c("RIGHT", "top")) -> tm6
+
+tmap::tmap_save(tm3, "./data/site_maps/population_map.png", height=10000, asp=0, dpi=1200)
+tmap::tmap_save(tm4, "./data/site_maps/slope_map.png", height=10000, asp=0, dpi=1200)
+tmap::tmap_save(tm5, "./data/site_maps/deforesation_map.png", height=10000, asp=0, dpi=1200)
+tmap::tmap_save(tm6, "./data/site_maps/urban_map.png", height=10000, asp=0, dpi=1200)
+tmap::tmap_save(tm88, "./data/site_maps/covariates_map.png", height=20000, asp=0, dpi=1200)
+
+tmap::tmap_mode("plot")
+tmap::tmap_arrange(tm3, tm4, tm6, tm5, ncols=2)
+```
+
+```{r, message=F, warning=F, error=F, comment=NA, cache=T, eval=F, echo=F}
+slope         = stars::read_stars("./data/covariates/slope_percent.tif")
+urban         = terra::rast("./data/covariates/urban.tif")
+urban_dict    = data.frame(id = c(0, 1), label = c("Non-Urban", "Urban"))
+levels(urban) = urban_dict
+
+counties      = sf::st_read("./data/covariates/places_poly_county.shp")
+places        = sf::st_read("./data/covariates/places_points.shp")
+roads         = sf::st_read("./data/covariates/roads_rail_transport_merged.shp")
+waterways     = sf::st_read("./data/covariates/waterbodies_waterways_merged.shp")
+
+tmap::tmap_mode("view")
+tmap::tm_shape(country) + tmap::tm_borders(lwd = 2, col="black") +
+  tmap::tm_shape(roads_clip) + tmap::tm_lines(col="orange", lwd=0.6) + 
+  tmap::tm_shape(roads_sle) + tmap::tm_lines(col="orange", lwd=0.6) + 
+  tmap::tm_shape(aoi) + tm_borders(col="red", lwd=1.7) + 
+  tmap::tm_shape(places_buff) + tm_symbols(size = 0.3,lwd = 0.9,fill = "dodgerblue3",col = "red")
+  tmap::tm_shape(waterways) + tmap::tm_lines(col = "blue") +
+  tmap::tm_add_legend(type="line", col="blue", labels = "Waterways") +
+  tmap::tm_shape(counties) + tmap::tm_borders(lwd = 1.2, col="green") +
+  tmap::tm_text("name", just = "center", col="white", size=1.1) +
+  tmap::tm_shape(aoi_gola) + tmap::tm_borders(lwd = 2, col = "red") +
+  tmap::tm_text("Name", just = "center", col="darkred", size=1) +
+  tmap::tm_shape(aoi_norm) + tmap::tm_borders(lwd = 2, col = "red") +
+  tmap::tm_text("Name", just = "center", col="darkred", size=1) +
+  tmap::tm_shape(aoi_tong) + tmap::tm_borders(lwd = 2, col = "red") +
+  tmap::tm_text("Name", just = "center", col="darkred", size=1) +
+  tmap::tm_basemap("Esri.WorldImagery")
+```
+
+```{r, message=F, warning=F, error=F, cache=T, fig.show='hold', out.width="50%", echo=F, eval=F}
+knitr::include_graphics(c("./data/site_maps/slope_map.png", 
+                          "./data/site_maps/urban_map.png"))
+```
+
+```{r, echo=F, eval=FALSE}
+basemap_osm   = tmaptools::read_osm(bbox_aoi, ext=1.1, zoom=11)
+
+tmap::tmap_mode("plot")
+tm21 <- tmap::tm_shape(bbox_aoi) + tmap::tm_borders(lwd = 0) +
+   tmap::tm_shape(basemap_osm) + tmap::tm_rgb() +
+   tmap::tm_shape(LULC_PROJECT_2014) + 
+   tm_raster("label",style= "cat", title="Land cover map, 2014", palette = c(
+     "yellow", "red", "darkolivegreen", "pink", "green", "purple", "blue")) +
+   tmap::tm_shape(roads) + tm_lines(col="orange", lwd=0.8) +
+   tmap::tm_add_legend(type="line", col="orange", labels = "Roads", title="") +
+   tmap::tm_shape(waterways) + tmap::tm_lines(col = "blue") +
+   tmap::tm_add_legend(type="line", col="blue", labels = "Rivers", title="") +
+   tmap::tm_shape(aoi) + tmap::tm_borders(lwd = 1.5, col = "black") +
+   tmap::tm_scale_bar(position=c("RIGHT", "BOTTOM"), text.size = .5) + 
+   tmap::tm_compass(color.dark="gray60",text.color="gray60",position=c("RIGHT", "top")) +
+   tmap::tm_graticules(lines=T,labels.rot=c(0,90),lwd=0.2) +
+   tmap::tm_layout(legend.position=c("left", "top"), legend.bg.color = "white") 
+
+tm22 <- tmap::tm_shape(bbox_aoi) + tmap::tm_borders(lwd = 0) +
+   tmap::tm_shape(basemap_osm) + tmap::tm_rgb() +
+   tmap::tm_shape(LULC_PROJECT_2019) + 
+   tm_raster("label",style= "cat", title="Land cover map, 2019", palette = c(
+     "yellow", "red", "darkolivegreen", "pink", "green", "purple", "blue")) +
+   tmap::tm_shape(roads) + tm_lines(col="orange", lwd=0.8) +
+   tmap::tm_add_legend(type="line", col="orange", labels = "Roads", title="") +
+   tmap::tm_shape(waterways) + tmap::tm_lines(col = "blue") +
+   tmap::tm_add_legend(type="line", col="blue", labels = "Rivers", title="") +
+   tmap::tm_shape(aoi) + tmap::tm_borders(lwd = 1.5, col = "black") +
+   tmap::tm_scale_bar(position=c("RIGHT", "BOTTOM"), text.size = .5) + 
+   tmap::tm_compass(color.dark="gray60",text.color="gray60",position=c("RIGHT", "top")) +
+   tmap::tm_graticules(lines=T,labels.rot=c(0,90),lwd=0.2) +
+   tmap::tm_layout(legend.position=c("left", "top"), legend.bg.color = "white")  
+ 
+tm23 <- tmap::tm_shape(bbox_aoi) + tmap::tm_borders(lwd = 0) +
+   tmap::tm_shape(basemap_osm) + tmap::tm_rgb() +
+   tmap::tm_shape(LULC_PROJECT_2024) + 
+   tm_raster("label",style= "cat", title="Land cover map, 2024", palette = c(
+     "yellow", "red", "darkolivegreen", "pink", "green", "purple", "blue")) +
+   tmap::tm_shape(roads) + tm_lines(col="orange", lwd=0.8) +
+   tmap::tm_add_legend(type="line", col="orange", labels = "Roads", title="") +
+   tmap::tm_shape(waterways) + tmap::tm_lines(col = "blue") +
+   tmap::tm_add_legend(type="line", col="blue", labels = "Rivers", title="") +
+   tmap::tm_shape(aoi) + tmap::tm_borders(lwd = 1.5, col = "black") +
+   tmap::tm_scale_bar(position=c("RIGHT", "BOTTOM"), text.size = .5) + 
+   tmap::tm_compass(color.dark="gray60",text.color="gray60",position=c("RIGHT", "top")) +
+   tmap::tm_graticules(lines=T,labels.rot=c(0,90),lwd=0.2) +
+   tmap::tm_layout(legend.position=c("left", "top"), legend.bg.color = "white") 
+
+tmap::tmap_save(tm22, "./data/site_maps/lulc_site_map_2019.png", height=10000, asp=0, dpi=1200)
+tmap::tmap_save(tm22, "./data/site_maps/lulc_site_map_2019.png", height=10000, asp=0, dpi=1200)
+tmap::tmap_save(tm23, "./data/site_maps/lulc_site_map_2024.png", height=10000, asp=0, dpi=1200)
+```
+
+#### Annualized deforestation
+
+```{r, eval=F}
+# Assign zones
+zones_sf = counties |> sf::st_transform("EPSG:32629")
+zones_sf$zone_id <- 1:nrow(zones_sf)
+zones_sv <- terra::vect(zones_sf)
+
+# Calculate zonal annualization by jurisdiction
+forest_2024 = terra::rast("./data/BINARY/forest_2024.tif")
+forest_loss_2014_2019 = terra::rast("./data/BINARY/forest_loss_2014_2019.tif")
+forest_loss_2019_2024 = terra::rast("./data/BINARY/forest_loss_2019_2024.tif")
+forest_loss_2014_2024 = terra::rast("./data/BINARY/forest_loss_2014_2024.tif")
+pixel_area_ha <- 0.088914  # 29.80124 x 29.80124 m² converted to hectares
+
+zonal_2014_2019 <- terra::extract(forest_loss_2014_2019,zones_sv,fun=sum,na.rm=T)
+zonal_2019_2024 <- terra::extract(forest_loss_2019_2024,zones_sv,fun=sum,na.rm=T)
+names(zonal_2014_2019) <- c("zone_id", "loss_2014_2019")
+names(zonal_2019_2024) <- c("zone_id", "loss_2019_2024")
+zonal_2014_2019$loss_2014_2019 <- zonal_2014_2019$loss_2014_2019 * pixel_area_ha
+zonal_2019_2024$loss_2019_2024 <- zonal_2019_2024$loss_2019_2024 * pixel_area_ha
+
+# Merge baseline years
+zonal_stats <- merge(
+  zonal_2014_2019,      # e.g. (zone_id, loss_2014_2019)
+  zonal_2019_2024,      # e.g. (zone_id, loss_2019_2024)
+  by = "zone_id",       # Common ID column
+  all = TRUE            # Keep all rows if zones differ
+)
+# Annualize 10-year total & rejoin to sf object
+zonal_stats$loss_10yr <- zonal_stats$loss_2014_2019 + zonal_stats$loss_2019_2024
+zonal_stats$annual_loss_10yr <- zonal_stats$loss_10yr / 10
+zones_sf <- merge(zones_sf, zonal_stats, by="zone_id", all.x=TRUE)
+head(zones_sf[, c("zone_id", "loss_2014_2019", "loss_2019_2024", 
+                  "loss_10yr", "annual_loss_10yr")])
+
+# Derive 10-yr annualized raster
+zones_sv <- terra::vect(zones_sf)
+annual_loss_10yr_raster <- rasterize(
+  zones_sv,                  # polygon SpatVector
+  forest_loss_2014_2019,     # template raster for resolution/extent
+  field = "annual_loss_10yr") # the column to rasterize
+names(annual_loss_10yr_raster) <- ("annual_loss_10yr")
+raster::writeRaster(annual_loss_10yr_raster,"./data/BINARY/annual_loss_2014_2024_zonal.tif",overwrite=T)
+```
+
+#### Distance covariates
+
+```{r, eval=F}
+# Derive distance-to-edge raster 
+forest_2024 = terra::rast("./data/BINARY/forest_2024.tif")
+forest_mask <- terra::classify(forest_2024, cbind(c(1,0), c(1,NA)))
+nonForest_mask <- terra::classify(forest_2024, cbind(c(1,0), c(NA,1)))
+writeRaster(forest_mask, "./data/BINARY/forest_mask.tif", overwrite=T)
+writeRaster(nonForest_mask, "./data/BINARY/nonForest_mask.tif", overwrite=T)
+
+forest_for_distance <- forest_mask
+forest_for_distance_raster <- raster::raster(forest_for_distance) 
+distance_to_edge <- distance(forest_for_distance_raster, filename="./data/BINARY/distance_to_edge_unix.tif")
+
+# Derive distance-to-feature rasters
+template <- forest_2024
+roads_rast <- rasterize(vect(transport), template, field=1, background=0)
+roads_rast <- subst(roads_rast, from=0, to=NA)
+distance_to_roads <- distance(roads_rast)
+writeRaster(distance_to_roads, "./data/LULC/distance_to_roads.tif", overwrite=T)
+
+places_vect   <- sf::st_read("./data/BINARY/places.shp") |> terra::vect()
+places_rast   <- rasterize(places_vect,template,field=1,background=0,touches=T)
+places_rast   <- subst(places_rast, from=0, to=NA)
+distance_to_places<- distance(places_rast)
+writeRaster(distance_to_places, "./data/LULC/distance_to_places.tif", overwrite=T)
+
+waterways_rast<-rasterize(vect(waterways_rast), template, field=1, background=0)
+waterways_rast<-subst(waterways_rast, from=0, to=NA)
+distance_to_waterways<-distance(waterways_rast)
+writeRaster(distance_to_waterways, "./data/LULC/distance_to_waterways.tif", overwrite=T)
+
+urban_rast    <- raster::raster(urban)
+urban_rast    <- subst(urban_rast, from=0, to=NA)
+distance_to_urban <- distance(urban_rast)
+writeRaster(distance_to_urban, "./data/LULC/distance_to_urban.tif", overwrite=T)
+
+# Normalize covariates for quicker computing
+normalize <- function(x){
+  (x-global(x,"min",na.rm=T))/
+    (global(x,"max",na.rm=T) -
+       global(x, "min",na.rm=T))}
+
+population= raster::raster(population)
+population= normalize_function(population)
+slope     = raster::raster(slope)
+slope     = normalize_function(slope)
+
+distance_to_forest    = normalize_function(distance_to_forest)
+distance_to_roads     = normalize_function(distance_to_roads)
+distance_to_places    = normalize_function(distance_to_places)
+distance_to_water     = normalize_function(distance_to_waterways)
+distance_to_urban     = normalize_function(distance_to_urban)
+
+# invert all risk-producing covariates
+distance_to_edge_inv <- 1 - distance_to_forest
+distance_to_roads_inv  <- 1 - distance_to_roads
+distance_to_places_inv <- 1 - distance_to_places
+distance_to_water_inv <- 1 -  distance_to_waterways
+distance_to_urban_inv   <- 1 - distance_to_urban
+
+writeRaster(distance_to_edge_inv, "./data/BINARY/distance_to_edge_inverted.tif", overwrite=T)
+writeRaster(distance_to_roads_inv, "./data/BINARY/distance_to_roads_inverted.tif", overwrite=T)
+writeRaster(distance_to_places_inv, "./data/BINARY/distance_to_places_inverted.tif", overwrite=T)
+writeRaster(distance_to_water_inv, "./data/BINARY/distance_to_water_inverted.tif", overwrite=T)
+writeRaster(distance_to_urban_inv, "./data/BINARY/distance_to_urban_inverted.tif", overwrite=T)
+writeRaster(slope_norm, "./data/BINARY/slope_norm.tif", overwrite=T)
+```
+
+```{r, echo=F, cache=T, fig.show='hold', out.width="50%", eval=F}
+deforestation_yr_zone <- stars::read_stars("./data/BINARY/annual_loss_2014_2024_zonal.tif")
+distance_to_edge   <- stars::read_stars("./data/BINARY/distance_to_edge_inverted.tif")
+distance_to_places <- stars::read_stars("./data/BINARY/distance_to_places_inverted.tif")
+distance_to_roads  <- stars::read_stars("./data/BINARY/distance_to_roads_inverted.tif")
+distance_to_urban  <- stars::read_stars("./data/BINARY/distance_to_urban_inverted.tif")
+distance_to_water  <- stars::read_stars("./data/BINARY/distance_to_water_inverted.tif")
+slope              <- stars::read_stars("./data/BINARY/slope_norm.tif")
+rspb_lc = terra::rast("/Users/seamus/Library/CloudStorage/OneDrive-WinrockInternationalInstituteforAgriculturalDevelopment/20087 - RSPB Gola Feasibility/Seamus/Spatial/RSPB-Sharepoint/lc_all_classification_map_2.tif")
+terra::plot(rspb_lc)
+
+tmap::tmap_mode("plot")
+tmap::tm_shape(deforestation_yr_zone) + 
+  tmap::tm_raster("annual_loss_2014_2024_zonal.tif",title="Annual zonal deforestation (ha)") +
+  tmap::tm_shape(counties) + tmap::tm_borders(lwd = 1.2, col="black") +
+  tmap::tm_text("name", just = "center", col="black", size=0.9) +
+  tmap::tm_graticules(lines=T,labels.rot=c(0,90),lwd=0.2) +
+  tmap::tm_scale_bar(position = c("RIGHT", "BOTTOM"), text.size = .5) + 
+  tmap::tm_compass(color.dark = "gray60", text.color = "gray60", position = c("left", "top")) -> tm11
+
+tmap::tm_shape(distance_to_edge) + tmap::tm_raster("distance_to_edge_inverted.tif", title="Normalized distance to forest edge", style = "cont", palette = "viridis") +
+  tmap::tm_shape(counties) + tmap::tm_borders(lwd = 1.2, col="black") +
+  tmap::tm_text("name", just = "center", col="black", size=0.9) +
+  tmap::tm_graticules(lines=T,labels.rot=c(0,90),lwd=0.2) +
+  tmap::tm_scale_bar(position = c("RIGHT", "BOTTOM"), text.size = .5) + 
+  tmap::tm_compass(color.dark = "gray60", text.color = "gray60", position = c("left", "top")) -> tm12
+
+tmap::tm_shape(distance_to_places) + tmap::tm_raster("distance_to_places_inverted.tif", title="Normalized distance to community", style = "cont", palette = "viridis") +
+  tmap::tm_shape(counties) + tmap::tm_borders(lwd = 1.2, col="black") +
+  tmap::tm_text("name", just = "center", col="black", size=0.9) +
+  tmap::tm_graticules(lines=T,labels.rot=c(0,90),lwd=0.2) +
+  tmap::tm_scale_bar(position = c("RIGHT", "BOTTOM"), text.size = .5) + 
+  tmap::tm_compass(color.dark = "gray60", text.color = "gray60", position = c("left", "top")) -> tm13
+
+tmap::tm_shape(distance_to_roads) + tmap::tm_raster("distance_to_roads_inverted.tif", title="Normalized distance to roads", style = "cont", palette = "viridis") +
+  tmap::tm_shape(counties) + tmap::tm_borders(lwd = 1.2, col="black") +
+  tmap::tm_text("name", just = "center", col="black", size=0.9) +
+  tmap::tm_graticules(lines=T,labels.rot=c(0,90),lwd=0.2) +
+  tmap::tm_scale_bar(position = c("RIGHT", "BOTTOM"), text.size = .5) + 
+  tmap::tm_compass(color.dark = "gray60", text.color = "gray60", position = c("left", "top")) -> tm14
+
+tmap::tm_shape(distance_to_urban) + tmap::tm_raster("distance_to_urban_inverted.tif", title="Normalized distance to urban area", style = "cont", palette = "viridis") +
+  tmap::tm_shape(counties) + tmap::tm_borders(lwd = 1.2, col="black") +
+  tmap::tm_text("name", just = "center", col="black", size=0.9) +
+  tmap::tm_graticules(lines=T,labels.rot=c(0,90),lwd=0.2) +
+  tmap::tm_scale_bar(position = c("RIGHT", "BOTTOM"), text.size = .5) + 
+  tmap::tm_compass(color.dark = "gray60", text.color = "gray60", position = c("left", "top")) -> tm15
+
+tmap::tm_shape(distance_to_water) + 
+  tmap::tm_raster("distance_to_water_inverted.tif",title="Normalized distance to water",style="cont", palette="viridis") +
+  tmap::tm_shape(counties) + tmap::tm_borders(lwd = 1.2, col="black") +
+  tmap::tm_text("name", just = "center", col="black", size=0.9) +
+  tmap::tm_graticules(lines=T,labels.rot=c(0,90),lwd=0.2) +
+  tmap::tm_scale_bar(position = c("RIGHT", "BOTTOM"), text.size = .5) + 
+  tmap::tm_compass(color.dark = "gray60", text.color = "gray60", position = c("left", "top")) -> tm16
+
+tmap::tm_shape(slope) + 
+  tmap::tm_raster("slope_norm.tif", title="Normalized slope percent", style = "cont", palette = "viridis") +
+  tmap::tm_shape(counties) + tmap::tm_borders(lwd = 1.2, col="black") +
+  tmap::tm_text("name", just = "center", col="black", size=0.9) +
+  tmap::tm_graticules(lines=T,labels.rot=c(0,90),lwd=0.2) +
+  tmap::tm_scale_bar(position = c("RIGHT", "BOTTOM"), text.size = .5) + 
+  tmap::tm_compass(color.dark = "gray60", text.color = "gray60", position = c("left", "top")) -> tm17
+
+tmap::tmap_save(tm11, "./data/site_maps/annual_zonal_deforestation.png", height=10000, asp=0, dpi=1200)
+tmap::tmap_save(tm12, "./data/site_maps/distance_to_forest_edge.png", height=10000, asp=0, dpi=1200)
+tmap::tmap_save(tm13, "./data/site_maps/distance_to_community.png", height=10000, asp=0, dpi=1200)
+tmap::tmap_save(tm14, "./data/site_maps/distance_to_road.png", height=10000, asp=0, dpi=1200)
+tmap::tmap_save(tm15, "./data/site_maps/distance_to_urban.png", height=10000, asp=0, dpi=1200)
+tmap::tmap_save(tm16, "./data/site_maps/distance_to_water.png", height=10000, asp=0, dpi=1200)
+tmap::tmap_save(tm17, "./data/site_maps/slope_normalized.png", height=10000, asp=0, dpi=1200)
+
+#terra::plot(STACK_RISK[[1]], main="Annual zonal deforestation, 2014-2024")
+#terra::plot(STACK_RISK[[2]], main="Normalized distance to forest edge")
+#terra::plot(STACK_RISK[[3]], main="Normalized distance to community")
+#terra::plot(STACK_RISK[[4]], main="Normalized distance to road")
+#terra::plot(STACK_RISK[[5]], main="Normalized distance to urban area")
+#terra::plot(STACK_RISK[[6]], main="Normalized distance to water")
+#terra::plot(STACK_RISK[[7]], main="Normalized slope percent")
+```
+
+```{r, echo=F, fig.show='hold', out.width="50%", eval=F}
+knitr::include_graphics(c("./data/site_maps/annual_zonal_deforestation.png",
+                          "./data/site_maps/distance_to_forest_edge.png",
+                          "./data/site_maps/distance_to_community.png",
+                          "./data/site_maps/distance_to_road.png",
+                          "./data/site_maps/distance_to_urban.png",
+                          "./data/site_maps/distance_to_water.png",
+                          "./data/site_maps/slope_normalized.png"))
+
+deforestation_yr_zone <- terra::rast("./data/BINARY/annual_loss_2014_2024_zonal.tif")
+distance_to_edge   <- terra::rast("./data/BINARY/distance_to_edge_inverted.tif")
+distance_to_places <- terra::rast("./data/BINARY/distance_to_places_inverted.tif")
+distance_to_roads  <- terra::rast("./data/BINARY/distance_to_roads_inverted.tif")
+distance_to_urban  <- terra::rast("./data/BINARY/distance_to_urban_inverted.tif")
+distance_to_water  <- terra::rast("./data/BINARY/distance_to_water_inverted.tif")
+slope              <- terra::rast("./data/BINARY/slope_norm.tif")
+```
+
+#### Deforestation risk
+
+Two methods were explored for weighting variables and creating a generalized deforestation risk index. We could consider developing a spatial risk model using the `spatstat` package or logistic regression, as has been cited in recent Verra guides. In addition, some of the heavy lifting with input formatting and data wrangling has already been completed.
+
+However, spatial modelling has tended to produce challenges when fitting such large country-wide covariates. Moreover, these kinds of spatialy driven models tend to require longer training procedures due to their intercept-based spatial kernels and slower resampling patterns.
+
+Alternatively, we have drafted a tentative risk indexing approach based on a weighted sum of subjectively scored covariate effects. While each variable would still need a carefully reasoned score, this option offers a more streamlined method that is easier to adjust. We applied this risk index to inform a risk weighted allocation of the 10-year deforestation rate, first by multiplying the fraction of pixel risk by zonal forest loss, and second by factoring out annual zonal loss by multiplying by pixel risk values, as shown below
+
+$$
+\mathrm{AllocatedLoss}_{\mathrm{pixel}}
+=
+\left(
+  \frac{\mathrm{risk}_{\mathrm{pixel}}}{\sum \mathrm{risk}_{\mathrm{zone}}}
+\right)
+\times
+\mathrm{annual\_loss\_10yr}_{\mathrm{zone}}
+$$
+
+$$
+\mathrm{allocated\_loss}_{\mathrm{pixel}}
+=
+\mathrm{risk}_{\mathrm{pixel}}
+\times
+\left(
+  \frac{\mathrm{annual\_loss\_10yr}_{\mathrm{zone}}}{\sum \mathrm{risk}_{\mathrm{zone}}}
+\right)
+$$
+
+Both formulas describe the same operation in different orders of multiplication: each pixel in a given zone Z receives a share of annual_loss_10yr~Z~ based on its proportional risk (the pixel's risk relative to the sum of all pixel risks in that zone). This ensures that higher-risk pixels are allocated more deforestation, in line with the Verra guidance for an allocated deforestation risk map.
+
+We intend to present both of these approaches for broader review and discussion in our upcoming meeting.
+
+```{r, eval=FALSE}
+risk_index <- (0.2 * distance_to_edge) +
+              (0.2 * distance_to_roads) +
+              (0.2 * distance_to_places) +
+              (0.1 * distance_to_urban) +
+              (0.1 * distance_to_water) +
+              (0.1 * slope)
+
+# Re-normalize the index to between 0 and 1
+rmin <- global(risk_index, "min", na.rm=TRUE)[1]
+rmax <- global(risk_index, "max", na.rm=TRUE)[1]
+risk_index_norm <- (risk_index - rmin) / (rmax - rmin)
+writeRaster(risk_index_norm, "./data/BINARY/deforestation_risk_index.tif",overwrite=T)
+
+# Returns a data.frame with columns: ID, risk_index_norm_sum
+risk_sum <- extract(risk_index_norm, zones_sv, fun = sum, na.rm=TRUE)
+colnames(risk_sum) <- c("zone_id","sum_risk")
+zones_stats <- merge(zones_sf, risk_sum, by="zone_id", all.x=TRUE)
+zones_rast <- rasterize(vect(zones_stats), risk_index_norm, field="zone_id")
+zones_stats$loss_factor <- zones_stats$annual_loss_10yr / zones_stats$sum_risk
+loss_factor_rast <- rasterize(vect(zones_stats), risk_index_norm, field="loss_factor")
+allocated_loss <- risk_index_norm * loss_factor_rast
+writeRaster(allocated_loss, "./data/BINARY/allocated_deforestation.tif", overwrite=T)
+
+# Visualize
+terra::plot(risk_index_norm, main="Deforestation risk map")
+terra::plot(allocated_loss, main="Allocated deforestation map")
+```
+
+```{r, echo=F, fig.show='hold', out.width="50%", eval=F}
+risk_index_norm <- terra::rast("./data/BINARY/deforestation_risk.tif")
+allocated_loss <- terra::rast("./data/BINARY/allocated_deforestation.tif")
+terra::plot(risk_index_norm, main="Deforestation risk map")
+terra::plot(allocated_loss, main="Allocated deforestation map")
+```
+
+#### Appendix I: Reference Period Classifiers
+
+To run these, you may change eval=F to eval=T at the top of chunk in the .Rmd or .R file saved in the OneDrive folder.
+
+```{r, eval=F, echo=T, class.source = 'fold-hide'}
+########################### 2019
+# extract signatures
+signatures_2019 = raster::extract(STACK_2019, samples ,df=T) # watch for data formats
+samples_signatures_2019 <- dplyr::inner_join(signatures_2019, samples, by=c("ID"="id"))
+samples_signatures_2019$geometry <- NULL # set geometry to NULL for model training
+
+# training-test split, p=0.7 -> 70% split
+partitioned_data_2019 <- stratified_partition(samples_signatures_2019,group_col="label", train_ratio=0.7)
+trainData_2019 <- partitioned_data_2019$train
+testData_2019 <- partitioned_data_2019$test
+table(trainData_2019$label)
+table(testData_2019$label)
+
+# synthetic minority oversampling technique
+trainData_2019<-performanceEstimation::smote(label ~ .,data=trainData_2019,perc.over=10, perc.under=100)
+testData_2019<-performanceEstimation::smote(label ~ .,data=testData_2019,perc.over=10,perc.under=100)
+# interpolate NAs with class-median-normalization (NAs -> missing cloud pixels)
+trainData_2019 <- trainData_2019 |> group_by(label) |> mutate(across(where(is.numeric),
+    ~ ifelse(is.na(.), median(., na.rm = TRUE), .))) |> ungroup()
+testData_2019 <- testData_2019 |> group_by(label) |> mutate(across(where(is.numeric),
+    ~ ifelse(is.na(.), median(., na.rm = TRUE), .))) |> ungroup()
+
+# assign model variables
+response  <- c("label")
+predictors_2019 <- c(
+  "NDVI_2019", "BLUE_2019", "GREEN_2019", "RED_2019", 
+  "NIR08_2019", "SWIR16_2019", "SWIR22_2019", "DEM"
+  )
+
+# train classifier
+rf_model_2019 <- caret::train(
+  label~.,
+  data = trainData_2019[, c(predictors_2019, "label")], # drop ID var
+  trControl = cv_regime,
+  method    = "rf", 
+  metric    = 'Kappa', 
+  ntree     = 500,
+  tuneLength= 6,
+  importance= T
+  )
+
+rf_test_2019 <- predict(rf_model_2019, testData_2019)
+print(rf_model_2019) # cv results
+confusionMatrix(rf_test_2019,testData_2019$label) # blind test results
+
+index_feature_2019 <- createMultiFolds(trainData_2019$label, times=5) 
+predictor_seq_2019 <-seq(from=1, to=length(predictors_2019),by=2)
+
+subset_regime_2019 <- rfeControl(
+  method="LGOCV",
+  number = 10,
+  verbose=FALSE,
+  functions=rfFuncs,
+  index=index_feature_2019
+  )
+
+rf_model_subset_2019 <- caret::rfe(
+  label~.,
+  data = trainData_2019[, c(predictors_2019, "label")], 
+  sizes = predictor_seq_2019,
+  metric = "Kappa",
+  ntree=500,
+  method="rf",
+  rfeControl = subset_regime_2019
+  )
+
+rf_subset_test_2019 <- predict(rf_model_subset_2019,testData_2019)
+print(rf_model_subset_2019)
+confusionMatrix(rf_subset_test_2019$pred,testData_2019$label)
+
+######################### 2024
+# extract signatures
+signatures_2024 = raster::extract(STACK_2024, samples ,df=T) # watch for data formats
+samples_signatures_2024 <- dplyr::inner_join(signatures_2024, samples, by=c("ID"="id"))
+samples_signatures_2024$geometry <- NULL # set geometry to NULL for model training
+
+# training-test split, p=0.7 -> 70% split
+partitioned_data_2024 <- stratified_partition(samples_signatures_2024,group_col="label", train_ratio=0.7)
+trainData_2024 <- partitioned_data_2024$train
+testData_2024 <- partitioned_data_2024$test
+table(trainData_2024$label)
+table(testData_2024$label)
+
+# synthetic minority oversampling technique
+trainData_2024<-performanceEstimation::smote(label ~ .,data=trainData_2024,perc.over=10, perc.under=100)
+testData_2024<-performanceEstimation::smote(label ~ .,data=testData_2024,perc.over=10,perc.under=100)
+# interpolate missing cloud pixels with class-median-normalization
+trainData_2024 <- trainData_2024 |> group_by(label) |> mutate(across(where(is.numeric),
+    ~ ifelse(is.na(.), median(., na.rm = TRUE), .))) |> ungroup()
+testData_2024 <- testData_2024 |> group_by(label) |> mutate(across(where(is.numeric),
+    ~ ifelse(is.na(.), median(., na.rm = TRUE), .))) |> ungroup()
+
+# interpolate NAs with class-median-normalization (NAs -> missing cloud pixels)
+trainData_2024 <- trainData_2024 |> group_by(label) |> mutate(across(where(is.numeric),
+    ~ ifelse(is.na(.), median(., na.rm = TRUE), .))) |> ungroup()
+testData_2024 <- testData_2024 |> group_by(label) |> mutate(across(where(is.numeric),
+    ~ ifelse(is.na(.), median(., na.rm = TRUE), .))) |> ungroup()
+water_2014 <- trainData_2014[trainData_2014$label == "Water", ]
+water_ids <- water_2014$ID
+water_2024 <- samples_signatures_2024[samples_signatures_2024$ID %in% water_ids, ]
+trainData_2024 <- rbind(trainData_2024, water_2024)
+table(trainData_2024$label)
+
+# assign model variables
+response  <- c("label")
+predictors_2024 <- c(
+  "NDVI_2024", "BLUE_2024", "GREEN_2024", "RED_2024", 
+  "NIR08_2024", "SWIR16_2024", "SWIR22_2024", "DEM"
+  )
+
+# train classifier
+rf_model_2024 <- caret::train(
+  label~.,
+  data = trainData_2024[, c(predictors_2024, "label")], # drop ID var
+  trControl = cv_regime,
+  method    = "rf", 
+  metric    = 'Kappa', 
+  ntree     = 500,
+  tuneLength= 6,
+  importance= T
+  )
+
+rf_test_2024 <- predict(rf_model_2024, testData_2024)
+print(rf_model_2024) # cv results
+confusionMatrix(rf_test_2024,testData_2024$label) # blind test results
+
+index_feature_2024 <- createMultiFolds(trainData_2024$label, times=5) 
+predictor_seq_2024 <-seq(from=1, to=length(predictors_2024),by=2)
+
+subset_regime_2024 <- rfeControl(
+  method="LGOCV",
+  number = 10,
+  verbose=FALSE,
+  functions=rfFuncs,
+  index=index_feature_2024
+  )
+
+rf_model_subset_2024 <- caret::rfe(
+  label~.,
+  data = trainData_2024[, c(predictors_2024, "label")], 
+  sizes = predictor_seq_2024,
+  metric = "Kappa",
+  ntree=500,
+  method="rf",
+  rfeControl = subset_regime_2024
+  )
+
+rf_subset_test_2024 <- predict(rf_model_subset_2024,testData_2024)
+print(rf_model_subset_2024)
+confusionMatrix(rf_subset_test_2024$pred,testData_2024$label)
+```
+
+```{r, eval=F, echo=T, class.source = 'fold-hide'}
+LULC_LIBERIA_2014 <- raster::predict(STACK_2014,rf_model_2014, na.rm=TRUE) |> raster::raster()
+raster::writeRaster(LULC_LIBERIA_2014,"./data/LULC/LULC_LIBERIA_2014-01-04.tif",
+  format = "GTiff", overwrite = T)
+
+LULC_LIBERIA_2019 <- raster::predict(STACK_2019,rf_model_2019, na.rm=TRUE) |> raster::raster() 
+raster::writeRaster(LULC_LIBERIA_2019,"./data/LULC/LULC_LIBERIA_2019-01-02.tif",
+  format = "GTiff",overwrite = T)
+
+LULC_LIBERIA_2024 <- raster::predict(STACK_2024,rf_model_2014, na.rm=TRUE) |> raster::raster() 
+raster::writeRaster(LULC_LIBERIA_2024,"./data/LULC/LULC_LIBERIA_2024-01-16x.tif",
+  format = "GTiff",overwrite = T)
+```
+
+#### Appendix II: Runtime snapshot
+
+```{r, eval=F}
+devtools::session_info()
+```
+
+```{r, eval=F}
+LULC_PROJECT_2015=terra::rast("./data/LULC/LULC_PROJECT_2015.tif")
+LULC_PROJECT_2019=terra::rast("./data/LULC/LULC_PROJECT_2019.tif")
+LULC_PROJECT_2024=terra::rast("./data/LULC/LULC_PROJECT_2024.tif")
+LULC_PROJECT_2015=terra::project(LULC_PROJECT_2015, "EPSG:32629")
+LULC_PROJECT_2024=terra::project(LULC_PROJECT_2024, "EPSG:32629")
+LULC_PROJECT_2019=terra::project(LULC_PROJECT_2019, "EPSG:32629")
+
+voi = sf::st_transform(aoi, 32629) |> terra::vect() 
+LULC_PROJECT_2015 = terra::crop(LULC_PROJECT_2015, voi, mask=T)
+LULC_PROJECT_2019 = terra::crop(LULC_PROJECT_2019, voi, mask=T)
+LULC_PROJECT_2024 = terra::crop(LULC_PROJECT_2024, voi, mask=T)
+
+code_dict <- data.frame(
+  id = c(0, 1, 2, 3, 4, 5, 6, 7),
+  label = c("Water", "Forest", "Grassland", 
+            "Wetland", "Croplan", "Shrubland", 
+            "Urban", "Bareground"))
+
+levels(LULC_PROJECT_2015) <- code_dict
+levels(LULC_PROJECT_2019) <- code_dict
+levels(LULC_PROJECT_2024) <- code_dict
+
+terra::plot(LULC_PROJECT_2015, main = "LULC 2015")
+terra::plot(LULC_PROJECT_2015, main = "LULC 2019")
+terra::plot(LULC_PROJECT_2015, main = "LULC 2024")
+
+raster_res <- terra::res(LULC_PROJECT_2015) # 9.933065 x 9.933065 m2
+pixel_area_ha <- (raster_res[1] * raster_res[2]) / 10000  # Convert m² to hectares
+freq_2015 <- as.data.frame(terra::freq(LULC_PROJECT_2015))
+freq_2015$area_ha <- freq_2015$count * pixel_area_ha
+freq_2015$percentage <- (freq_2015$area_ha / sum(freq_2015$area_ha)) * 100
+freq_2015$year <- 2015
+
+freq_2019 <- as.data.frame(terra::freq(LULC_PROJECT_2019))
+freq_2019$area_ha <- freq_2019$count * pixel_area_ha
+freq_2019$percentage <- (freq_2019$area_ha / sum(freq_2019$area_ha)) * 100
+freq_2019$year <- 2019
+
+freq_2024 <- as.data.frame(terra::freq(LULC_PROJECT_2024))
+freq_2024$area_ha <- freq_2024$count * pixel_area_ha
+freq_2024$percentage <- (freq_2024$area_ha / sum(freq_2024$area_ha)) * 100
+freq_2024$year <- 2024
+
+land_cover_summary=bind_rows(freq_2015, freq_2019, freq_2024)
+land_cover_summary=merge(land_cover_summary,code_dict, by.x="value",by.y="id",all.x=T)
+
+land_cover_summary_wide <- land_cover_summary %>%
+  select(label, year, area_ha, percentage) %>%
+  pivot_wider(names_from = year, values_from = c(area_ha, percentage))
+print(land_cover_summary_wide)
+```
+
+```{r, eval=F}
+unique_values_2015 <- terra::unique(LULC_PROJECT_2015)
+unique_values_2019 <- terra::unique(LULC_PROJECT_2019)
+unique_values_2024 <- terra::unique(LULC_PROJECT_2024)
+
+print(unique_values_2015)
+print(unique_values_2019)
+print(unique_values_2024)
+
+print(terra::is.factor(LULC_PROJECT_2015))
+print(terra::levels(LULC_PROJECT_2015))
+print(terra::levels(LULC_PROJECT_2019))
+print(terra::levels(LULC_PROJECT_2024))
+
+
+levels(LULC_PROJECT_2015) <- data.frame(ID = code_dict$id, label = code_dict$label)
+levels(LULC_PROJECT_2019) <- data.frame(ID = code_dict$id, label = code_dict$label)
+levels(LULC_PROJECT_2024) <- data.frame(ID = code_dict$id, label = code_dict$label)
+freq_2015 <- as.data.frame(terra::freq(LULC_PROJECT_2015))
+freq_2019 <- as.data.frame(terra::freq(LULC_PROJECT_2019))
+freq_2024 <- as.data.frame(terra::freq(LULC_PROJECT_2024))
+
+print(freq_2015)
+print(freq_2019)
+print(freq_2024)
+
+print(LULC_PROJECT_2015)
+print(LULC_PROJECT_2019)
+print(LULC_PROJECT_2024)
+
+plot(LULC_PROJECT_2015, main = "LULC 2015")
+plot(LULC_PROJECT_2019, main = "LULC 2019")
+plot(LULC_PROJECT_2024, main = "LULC 2024")
+
+```
+
