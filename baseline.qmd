@@ -16,7 +16,7 @@ format:
     toc: true
     toc-location: right
     toc-title: "**Contents**"
-    toc-depth: 5
+    toc-depth: 4
     toc-expand: 4
     theme: [minimal, styles.scss]
 highlight-style: github
@@ -997,16 +997,21 @@ Balanced Accuracy            0.79268       0.5000      0.89886      0.99618
 The subset model achieved an Accuracy of 89. 8%. These metrics closely align with the results of the original model, suggesting minimal or no loss in predictive power despite using fewer predictors. Given that the reduction in complexity offered by the subsetted model does not provide significant benefits in this context, we would recommend proceeding with the original model to make spatial predictions. Modelling operations were then repeated for 2019 and 2024, which were visualized as the classified time series below.
 
 ```{r}
-LULC_LIBERIA_2014=terra::rast("./data/LULC/LULC_LIBERIA_2014-01-04.tif")
-LULC_LIBERIA_2019=terra::rast("./data/LULC/LULC_LIBERIA_2019-01-02.tif")
-LULC_LIBERIA_2024=terra::rast("./data/LULC/LULC_LIBERIA_2024-01-16.tif")
+#| warning: false
+#| message: false
+#| echo: true
+#| eval: true
+#| comment: NA
+
+LULC_LIBERIA_2014=terra::rast("./assets/LULC/outputs/LULC_LIBERIA_2014-01-04.tif")
+LULC_LIBERIA_2019=terra::rast("./assets/LULC/outputs/LULC_LIBERIA_2019-01-02.tif")
+LULC_LIBERIA_2024=terra::rast("./assets/LULC/outputs/LULC_LIBERIA_2024-01-16.tif")
 code_dict <- data.frame(id = c(1, 2, 3, 4, 5, 6, 7),
   label = c("Bareground", "Farmbush", "Forest", "Regrowth", "Swamp", "Urban", "Water"))
 levels(LULC_LIBERIA_2014) <- code_dict
 levels(LULC_LIBERIA_2019) <- code_dict
 levels(LULC_LIBERIA_2024) <- code_dict
-zoi = sf::st_transform(aoi, 4326)
-voi = terra::vect(zoi)
+voi = terra::vect(aoi_states)
 LULC_PROJECT_2014 = terra::crop(LULC_LIBERIA_2014, voi, mask=T)
 LULC_PROJECT_2019 = terra::crop(LULC_LIBERIA_2019, voi, mask=T)
 LULC_PROJECT_2024 = terra::crop(LULC_LIBERIA_2024, voi, mask=T)
@@ -1017,21 +1022,15 @@ terra::plot(LULC_PROJECT_2014, main="Land Cover, 2014")
 terra::plot(LULC_PROJECT_2019, main="Land Cover, 2019")
 terra::plot(LULC_PROJECT_2024, main="Land Cover, 2024")
 
-mask_gola = terra::rast("./data/BINARY/mask_gola.tif")
-mask_tong = terra::rast("./data/BINARY/mask_tong.tif")
-mask_norm = terra::rast("./data/BINARY/mask_norm.tif")
-mask_project = terra::rast("./data/BINARY/mask_project.tif")
-mask_gola=terra::resample(mask_gola, LULC_PROJECT_2014)
-mask_tong=terra::resample(mask_tong, LULC_PROJECT_2014)
-mask_norm=terra::resample(mask_norm, LULC_PROJECT_2014)
-mask_project=terra::resample(mask_project, LULC_PROJECT_2014)
-
 pixel_area_ha <- 0.088914  # 29.80124 x 29.80124 m² converted to hectares
-compute_land_cover_summary <- function(zoi, rasters, pixel_area) {
+compute_land_cover_summary <- function(aoi_states, rasters, pixel_area) {
   results = list()
-  for (region in unique(aoi$Name)) {
+  for (region in unique(aoi_states$NAME_1)) {
     for (year in names(rasters)) {
-      cropped_raster = terra::crop(rasters[[year]], zoi[zoi$Name == region, ], mask = TRUE)
+      cropped_raster = terra::crop(
+        rasters[[year]], 
+        aoi_states[aoi_states$NAME_1 == region, ], 
+        mask = TRUE)
       freq = terra::freq(cropped_raster)
       freq$area_ha = freq$count * pixel_area
       freq$percentage = (freq$area_ha / sum(freq$area_ha)) * 100
@@ -1045,8 +1044,96 @@ compute_land_cover_summary <- function(zoi, rasters, pixel_area) {
 
 # Example call
 rasters = list("2014" = LULC_PROJECT_2014, "2019" = LULC_PROJECT_2019, "2024" = LULC_PROJECT_2024)
-land_cover_summary = compute_land_cover_summary(zoi, rasters, pixel_area_ha)
+land_cover_summary = compute_land_cover_summary(aoi_states, rasters, pixel_area_ha)
 land_cover_summary
+```
+
+#### Baseline Deforestation
+
+```{r}
+#| layout-ncol: 2
+#| warning: false
+#| message: false
+#| echo: true
+#| eval: false
+#| comment: NA
+
+# Reproject crs to enable metric area estimates
+LULC_PROJECT_2014 = terra::project(LULC_PROJECT_2014, "EPSG:32629")
+LULC_PROJECT_2019 = terra::project(LULC_PROJECT_2019, "EPSG:32629")
+LULC_PROJECT_2024 = terra::project(LULC_PROJECT_2024, "EPSG:32629")
+
+# Derive binary forest layers
+forest_class = 3
+forest_2014 <- LULC_PROJECT_2014 == forest_class
+forest_2019 <- LULC_PROJECT_2019 == forest_class
+forest_2024 <- LULC_PROJECT_2024 == forest_class
+
+# Gross forest loss
+forest_loss_2014_2019_gross <- forest_2014 & !forest_2019
+forest_loss_2019_2024_gross <- forest_2019 & !forest_2024
+forest_loss_2014_2024_gross <- forest_2014 & !forest_2024
+
+# Gross forest gain
+forest_gain_2014_2019_gross <- !forest_2014 & forest_2019
+forest_gain_2019_2024_gross <- !forest_2019 & forest_2024
+forest_gain_2014_2024_gross <- !forest_2014 & forest_2024
+
+# Forest net loss 
+forest_loss_2014_2019 <- forest_loss_2014_2019_gross & !forest_gain_2014_2019_gross
+forest_loss_2019_2024 <- forest_loss_2019_2024_gross & !forest_gain_2019_2024_gross
+forest_loss_2014_2024 <- forest_loss_2014_2024_gross & !forest_gain_2014_2024_gross
+
+# Save & visualize
+raster::writeRaster(forest_2014, "./assets/LULC/outputs/forest_2014.tif",overwrite=T)
+raster::writeRaster(forest_2019, "./assets/LULC/outputs/forest_2019.tif",overwrite=T)
+raster::writeRaster(forest_2024, "./assets/LULC/outputs/forest_2024.tif",overwrite=T)
+raster::writeRaster(forest_loss_2014_2019, "./assets/LULC/outputs//forest_loss_2014_2019.tif",overwrite=T)
+raster::writeRaster(forest_loss_2019_2024, "./assets/LULC/outputs//forest_loss_2019_2024.tif",overwrite=T)
+raster::writeRaster(forest_loss_2014_2024, "./assets/LULC/outputs//forest_loss_2014_2024.tif",overwrite=T)
+resolution <- terra::res(forest_2014)[1]
+forest_2014_estimate <- sum(forest_2014[], na.rm = TRUE) * resolution^2 / 10000
+forest_2019_estimate <- sum(forest_2019[], na.rm = TRUE) * resolution^2 / 10000
+forest_2024_estimate <- sum(forest_2024[], na.rm = TRUE) * resolution^2 / 10000
+forest_loss_2014_2019_estimate <- sum(forest_loss_2014_2019[],na.rm=T)*resolution^2/10000
+forest_loss_2019_2024_estimate <- sum(forest_loss_2019_2024[],na.rm=T)*resolution^2/10000
+forest_loss_2014_2024_estimate <- sum(forest_loss_2014_2024[],na.rm=T)*resolution^2/10000
+cat("Total forest area across Bong County in 2014:", forest_2014_estimate, "hectares\n")
+cat("Total forest area across Bong County in 2019:", forest_2019_estimate, "hectares\n")
+cat("Total forest area across Bong County in 2024", forest_2024_estimate, "hectares\n")
+cat("Total forest loss across Bong County between 2014 & 2024:", forest_loss_2014_2024_estimate, "hectares\n")
+terra::plot(forest_2014, main="Forest Cover Map, 2014")
+terra::plot(forest_2019, main="Forest Cover Map, 2019")
+terra::plot(forest_2024, main="Forest Cover Map, 2024")
+terra::plot(forest_loss_2014_2024, main="Forest Loss Map, 2014-2024")
+```
+
+```{r}
+#| layout-ncol: 2
+#| warning: false
+#| message: false
+#| echo: false
+#| eval: true
+#| comment: NA
+
+forest_2014=terra::rast("./assets/LULC/outputs/forest_2014.tif")
+forest_2019=terra::rast("./assets/LULC/outputs/forest_2019.tif")
+forest_2024=terra::rast("./assets/LULC/outputs/forest_2024.tif")
+forest_loss_2014_2024=terra::rast("./assets/LULC/outputs//forest_loss_2014_2024.tif")
+
+resolution <- terra::res(forest_2014)[1]
+forest_2014_estimate <- sum(forest_2014[], na.rm = TRUE) * resolution^2 / 10000
+forest_2019_estimate <- sum(forest_2019[], na.rm = TRUE) * resolution^2 / 10000
+forest_2024_estimate <- sum(forest_2024[], na.rm = TRUE) * resolution^2 / 10000
+forest_loss_2014_2024_estimate <- sum(forest_loss_2014_2024[],na.rm=T)*resolution^2/10000
+cat("Total forest area across Bong County in 2014:", forest_2014_estimate, "hectares\n")
+cat("Total forest area across Bong County in 2019:", forest_2019_estimate, "hectares\n")
+cat("Total forest area across Bong County in 2024", forest_2024_estimate, "hectares\n")
+cat("Total forest loss across Bong County between 2014 & 2024:", forest_loss_2014_2024_estimate, "hectares\n")
+terra::plot(forest_2014, main="Forest Cover Map, 2014")
+terra::plot(forest_2019, main="Forest Cover Map, 2019")
+terra::plot(forest_2024, main="Forest Cover Map, 2024")
+terra::plot(forest_loss_2014_2024, main="Forest Loss Map, 2014-2024")
 ```
 
 #### Runtime Info
