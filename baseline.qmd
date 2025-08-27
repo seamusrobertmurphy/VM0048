@@ -163,8 +163,9 @@ Spatial boundaries were established using the Global Administrative Unit Layers 
 #| eval: true
 #| comment: NA
 
-aoi_country = geodata::gadm(country="LBR", level=0, path="./assets/AOI") |> sf::st_as_sf()
-aoi_states  = geodata::gadm(country="LBR", level=1, path="./assets/AOI") |> sf::st_as_sf() |> dplyr::filter(NAME_1 == "Bong")
+aoi_country    = geodata::gadm(country="LBR", level=0, path="./assets/AOI") |> sf::st_as_sf()
+aoi_states     = geodata::gadm(country="LBR", level=1, path="./assets/AOI") |> sf::st_as_sf() |> dplyr::filter(NAME_1 == "Rivercess")
+aoi_states_all = geodata::gadm(country="LBR", level=1, path="./assets/AOI") |> sf::st_as_sf() 
 sf::st_write(aoi_country, "./assets/AOI/aoi_country.shp", delete_layer=T, delete_dsn=T)
 sf::st_write(aoi_states, "./assets/AOI/aoi_states.shp", delete_layer=T, delete_dsn=T)
 crs_master = sf::st_crs(aoi_country)
@@ -1057,7 +1058,7 @@ land_cover_summary
 #| warning: false
 #| message: false
 #| echo: true
-#| eval: false
+#| eval: true
 #| comment: NA
 
 # Reproject crs to enable metric area estimates
@@ -1065,18 +1066,13 @@ LULC_PROJECT_2014 = terra::project(LULC_PROJECT_2014, "EPSG:32629")
 LULC_PROJECT_2019 = terra::project(LULC_PROJECT_2019, "EPSG:32629")
 LULC_PROJECT_2024 = terra::project(LULC_PROJECT_2024, "EPSG:32629")
 
-# Derive binary forest layers
 forest_class = 3
 forest_2014 <- LULC_PROJECT_2014 == forest_class
 forest_2019 <- LULC_PROJECT_2019 == forest_class
 forest_2024 <- LULC_PROJECT_2024 == forest_class
-
-# Gross forest loss
 forest_loss_2014_2019_gross <- forest_2014 & !forest_2019
 forest_loss_2019_2024_gross <- forest_2019 & !forest_2024
 forest_loss_2014_2024_gross <- forest_2014 & !forest_2024
-
-# Gross forest gain
 forest_gain_2014_2019_gross <- !forest_2014 & forest_2019
 forest_gain_2019_2024_gross <- !forest_2019 & forest_2024
 forest_gain_2014_2024_gross <- !forest_2014 & forest_2024
@@ -1100,36 +1096,7 @@ forest_2024_estimate <- sum(forest_2024[], na.rm = TRUE) * resolution^2 / 10000
 forest_loss_2014_2019_estimate <- sum(forest_loss_2014_2019[],na.rm=T)*resolution^2/10000
 forest_loss_2019_2024_estimate <- sum(forest_loss_2019_2024[],na.rm=T)*resolution^2/10000
 forest_loss_2014_2024_estimate <- sum(forest_loss_2014_2024[],na.rm=T)*resolution^2/10000
-cat("Total forest area across Bong County in 2014:", forest_2014_estimate, "hectares\n")
-cat("Total forest area across Bong County in 2019:", forest_2019_estimate, "hectares\n")
-cat("Total forest area across Bong County in 2024", forest_2024_estimate, "hectares\n")
-cat("Total forest loss across Bong County between 2014 & 2024:", forest_loss_2014_2024_estimate, "hectares\n")
-terra::plot(forest_2014, main="Forest Cover Map, 2014")
-terra::plot(forest_2019, main="Forest Cover Map, 2019")
-terra::plot(forest_2024, main="Forest Cover Map, 2024")
-terra::plot(forest_loss_2014_2024, main="Forest Loss Map, 2014-2024")
-```
 
-```{r}
-#| layout-ncol: 2
-#| warning: false
-#| message: false
-#| echo: true
-#| eval: true
-#| comment: NA
-
-forest_2014=terra::rast("./assets/LULC/outputs/forest_2014.tif")
-forest_2019=terra::rast("./assets/LULC/outputs/forest_2019.tif")
-forest_2024=terra::rast("./assets/LULC/outputs/forest_2024.tif")
-forest_loss_2014_2024=terra::rast("./assets/LULC/outputs//forest_loss_2014_2024.tif")
-
-resolution <- terra::res(forest_2014)[1]
-forest_2014_estimate <- sum(forest_2014[], na.rm = TRUE) * resolution^2 / 10000
-forest_2019_estimate <- sum(forest_2019[], na.rm = TRUE) * resolution^2 / 10000
-forest_2024_estimate <- sum(forest_2024[], na.rm = TRUE) * resolution^2 / 10000
-forest_loss_2014_2024_estimate <- sum(forest_loss_2014_2024[],na.rm=T)*resolution^2/10000
-
-# Create a data frame for better presentation
 forest_summary <- data.frame(
   Year = c("2014", "2019", "2024", "Loss 2014-2024"),
   `Forest Area (hectares)` = c(
@@ -1140,9 +1107,11 @@ forest_summary <- data.frame(
   )
 )
 
-knitr::kable(forest_summary, 
-             caption = "Forest Cover Summary for Bong County",
-             align = c("l", "r"))
+options(scipen = 999)
+knitr::kable(
+  forest_summary, 
+  caption = "Forest Cover Summary for Rivercress County",
+  align = c("l", "r"))
 
 terra::plot(forest_2014, main="Forest Cover Map, 2014")
 terra::plot(forest_2019, main="Forest Cover Map, 2019")
@@ -1150,11 +1119,99 @@ terra::plot(forest_2024, main="Forest Cover Map, 2024")
 terra::plot(forest_loss_2014_2024, main="Forest Loss Map, 2014-2024")
 ```
 
+###### *Annualized Deforestation*
+
+```{r}
+#| warning: false
+#| message: false
+#| echo: true
+#| eval: false
+#| comment: NA
+
+# Assign zones
+zones_sf = aoi_states |> sf::st_transform("EPSG:32629")
+zones_sf$zone_id <- 1:nrow(zones_sf)
+zones_sv <- terra::vect(zones_sf)
+
+# Calculate zonal annualization by jurisdiction
+forest_2024 = terra::rast("./assets/LULC/outputs/forest_2024.tif")
+forest_loss_2014_2019 = terra::rast("./assets/LULC/outputs/forest_loss_2014_2019.tif")
+forest_loss_2019_2024 = terra::rast("./assets/LULC/outputs/forest_loss_2019_2024.tif")
+resolution <- terra::res(forest_loss_2014_2024) # 29.80244 * 29.80244
+pixel_sqm <- (resolution[1] * resolution[2]) / 10000  # Convert m² to hectares
+
+zonal_2014_2019 <- terra::extract(forest_loss_2014_2019,zones_sv,fun=sum,na.rm=T)
+zonal_2019_2024 <- terra::extract(forest_loss_2019_2024,zones_sv,fun=sum,na.rm=T)
+zonal_201_2024 <- terra::extract(forest_loss_2019_2024,zones_sv,fun=sum,na.rm=T)
+names(zonal_2014_2019) <- c("zone_id", "loss_2014_2019")
+names(zonal_2019_2024) <- c("zone_id", "loss_2019_2024")
+zonal_2014_2019$loss_2014_2019 <- zonal_2014_2019$loss_2014_2019 * pixel_sqm
+zonal_2019_2024$loss_2019_2024 <- zonal_2019_2024$loss_2019_2024 * pixel_sqm
+
+# Merge baseline years
+zonal_stats <- merge(
+  zonal_2014_2019,
+  zonal_2019_2024,
+  by = "zone_id", 
+  all = TRUE      
+)
+
+# Annualize 10-year total & rejoin to sf
+zonal_stats$loss_10yr <- zonal_stats$loss_2014_2019 + zonal_stats$loss_2019_2024
+zonal_stats$annual_loss_10yr <- zonal_stats$loss_10yr / 10
+zones_sf <- merge(zones_sf, zonal_stats, by="zone_id", all.x=TRUE)
+head(zones_sf[, c("zone_id", "loss_2014_2019", "loss_2019_2024", 
+                  "loss_10yr", "annual_loss_10yr")])
+zones_sv <- terra::vect(zones_sf)
+annual_loss_10yr_raster <- rasterize(
+  zones_sv,                  
+  forest_loss_2014_2019,     
+  field = "annual_loss_10yr")
+names(annual_loss_10yr_raster) <- ("annual_loss_10yr")
+
+raster::writeRaster(annual_loss_10yr_raster,
+  "./assers/LULC/outputs/annual_loss_2014_2024_zonal.tif",overwrite=T)
+
+tmap::tmap_mode("view")
+tmap::tm_shape(deforestation_baseline) + 
+  tmap::tm_raster("annual_loss_2014_2024_zonal.tif",title="Annual Deforestation (ha)") +
+  tmap::tm_shape(aoi_states_all) + tmap::tm_borders(lwd = 1.2, col="black") +
+  tmap::tm_text("NAME_1", just = "center", col="black", size=0.9) +
+  tmap::tm_graticules(lines=T,labels.rot=c(0,90),lwd=0.2) +
+  tmap::tm_scale_bar(position = c("RIGHT", "BOTTOM"), text.size = .5) + 
+  tmap::tm_compass(color.dark = "gray60", text.color = "gray60", position = c("left", "top")) -> tm11
+```
+
+```{r}
+#| warning: false
+#| message: false
+#| echo: false
+#| eval: true
+#| comment: NA
+
+deforestation_baseline <- stars::read_stars("./assets/LULC/outputs/annual_loss_2014_2024_zonal.tif")
+
+tmap::tmap_mode("view")
+tmap::tm_shape(deforestation_baseline) + 
+  tmap::tm_raster("annual_loss_2014_2024_zonal.tif",title="Annual Deforestation (ha/yr)",
+    col.scale = tm_scale_continuous(values = terrain.colors(9))) +
+  tmap::tm_shape(aoi_country) + tmap::tm_borders(col="purple", lwd=2) +
+  tmap::tm_shape(aoi_states) + tmap::tm_borders(col="red", lwd=1.2) +
+  tmap::tm_shape(aoi_states_all) + tmap::tm_borders(lwd = .9, col="black") +
+  tmap::tm_text("NAME_1", just = "center", col="black", size=0.9) +
+  #tmap::tm_compass(color.dark="gray60",text.color="gray60",position=c("RIGHT","top"))+
+  #tmap::tm_graticules(lines=T,labels.rot=c(0,90),lwd=0.2) +
+  #tmap::tm_layout(legend.position=c("left", "top"), legend.bg.color = "white") +
+  tmap::tm_basemap("Esri.WorldImagery") 
+  #tmap::tm_basemap("OpenStreetMap") 
+  #tmap::tm_basemap("OpenTopoMap") 
+```
+
 #### Baseline Emissions
 
-The baseline emissions calculation for Bong County follows the Verra VM0048 methodology for REDD+ projects, utilizing carbon stock values derived from regional reference data. Carbon stock values were stratified according to forest management categories consistent with Community Forest designations.
+The baseline emissions calculation for Rivercress County follows the Verra VM0048 methodology for REDD+ projects, utilizing carbon stock values derived from regional reference data. Carbon stock values were stratified according to forest management categories consistent with Community Forest designations.
 
-*Table 3: Carbon Stock Parameters for Bong County (tCO2 ha-1)*
+*Table 3: Carbon Stock Parameters for Rivercress County (tCO2 ha-1)*
 
 | Carbon Pool | Community Forest | Post-Deforestation | ∆ C Community Forest |
 |----|----|----|----|
@@ -1178,7 +1235,7 @@ Post-deforestation SOC = 167.33 × 0.83 × 1.00 × 0.94 = 130.55 tCO2 ha-1
 
 Baseline Emissions = Annual Deforestation Area × Carbon Stock Loss per Hectare\*\*
 
-*Table 5: Baseline Emissions for Bong County*
+*Table 5: Baseline Emissions for Rivercress County*
 
 | Component | Annual Area (ha) | Emission Factor (tCO2/ha) | Annual Emissions (tCO2) |
 |----|----|----|----|
@@ -1187,11 +1244,9 @@ Baseline Emissions = Annual Deforestation Area × Carbon Stock Loss per Hectare\
 | Soil Organic Carbon Loss | 4,654 | 36.78 | 171,210 |
 | **Total Annual Baseline Emissions** | **4,654** | **477.18** | **2,220,763** |
 
-#### Baseline Trends
+Based on the land cover classification results from Section 2, the historical reference period (2014-2024) analysis for Rivercress County shows:
 
-Based on the land cover classification results from Section 2, the historical reference period (2014-2024) analysis for Bong County shows:
-
-*Table 6: Historical Forest Cover and Deforestation in Bong County*
+*Table 6: Historical Forest Cover and Deforestation in Rivercress County*
 
 | Metric                            | Value         |
 |-----------------------------------|---------------|

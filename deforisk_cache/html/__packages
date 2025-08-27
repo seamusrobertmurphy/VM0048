@@ -18,3 +18,7 @@ ggplot2
 useful
 webshot
 webshot2
+geodata
+ggmap
+httr2
+osmdata
