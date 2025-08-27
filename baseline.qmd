@@ -1048,6 +1048,8 @@ land_cover_summary = compute_land_cover_summary(aoi_states, rasters, pixel_area_
 land_cover_summary
 ```
 
+## 3. Results
+
 #### Baseline Deforestation
 
 ```{r}
@@ -1112,7 +1114,7 @@ terra::plot(forest_loss_2014_2024, main="Forest Loss Map, 2014-2024")
 #| layout-ncol: 2
 #| warning: false
 #| message: false
-#| echo: false
+#| echo: true
 #| eval: true
 #| comment: NA
 
@@ -1145,96 +1147,6 @@ knitr::kable(forest_summary,
 terra::plot(forest_2014, main="Forest Cover Map, 2014")
 terra::plot(forest_2019, main="Forest Cover Map, 2019")
 terra::plot(forest_2024, main="Forest Cover Map, 2024")
-terra::plot(forest_loss_2014_2024, main="Forest Loss Map, 2014-2024")
-```
-
-```{r}
-#| layout-ncol: 2
-#| warning: false
-#| message: false
-#| echo: false
-#| eval: false
-#| comment: NA
-
-forest_2014=terra::rast("./assets/LULC/outputs/forest_2014.tif")
-forest_2019=terra::rast("./assets/LULC/outputs/forest_2019.tif")
-forest_2024=terra::rast("./assets/LULC/outputs/forest_2024.tif")
-forest_loss_2014_2024=terra::rast("./assets/LULC/outputs//forest_loss_2014_2024.tif")
-
-resolution <- terra::res(forest_2014)[1]
-forest_2014_estimate <- sum(forest_2014[], na.rm = TRUE) * resolution^2 / 10000
-forest_2019_estimate <- sum(forest_2019[], na.rm = TRUE) * resolution^2 / 10000
-forest_2024_estimate <- sum(forest_2024[], na.rm = TRUE) * resolution^2 / 10000
-forest_loss_2014_2024_estimate <- sum(forest_loss_2014_2024[],na.rm=T)*resolution^2/10000
-
-# Create a data frame for better presentation
-forest_summary <- data.frame(
-  Year = c("2014", "2019", "2024", "Loss 2014-2024"),
-  `Forest Area (hectares)` = c(
-    format(forest_2014_estimate, big.mark = ",", digits = 1),
-    format(forest_2019_estimate, big.mark = ",", digits = 1),
-    format(forest_2024_estimate, big.mark = ",", digits = 1),
-    format(forest_loss_2014_2024_estimate, big.mark = ",", digits = 1)
-  )
-)
-
-knitr::kable(forest_summary, 
-             caption = "Forest Cover Summary for Bong County",
-             align = c("l", "r"))
-
-terra::plot(forest_2014, main="Forest Cover Map, 2014")
-terra::plot(forest_2019, main="Forest Cover Map, 2019")
-terra::plot(forest_2024, main="Forest Cover Map, 2024")
-```
-
-```{r}
-#| layout-ncol: 2
-#| warning: false
-#| message: false
-#| echo: false
-#| eval: true
-#| comment: NA
-
-forest_2014=terra::rast("./assets/LULC/outputs/forest_2014.tif")
-forest_2019=terra::rast("./assets/LULC/outputs/forest_2019.tif")
-forest_2024=terra::rast("./assets/LULC/outputs/forest_2024.tif")
-forest_loss_2014_2024=terra::rast("./assets/LULC/outputs//forest_loss_2014_2024.tif")
-
-resolution <- terra::res(forest_2014)[1]
-forest_2014_estimate <- sum(forest_2014[], na.rm = TRUE) * resolution^2 / 10000
-forest_2019_estimate <- sum(forest_2019[], na.rm = TRUE) * resolution^2 / 10000
-forest_2024_estimate <- sum(forest_2024[], na.rm = TRUE) * resolution^2 / 10000
-forest_loss_2014_2024_estimate <- sum(forest_loss_2014_2024[],na.rm=T)*resolution^2/10000
-
-# Create a data frame for better presentation
-forest_summary <- data.frame(
-  Year = c("2014", "2019", "2024", "Loss 2014-2024"),
-  `Forest Area (hectares)` = c(
-    format(forest_2014_estimate, big.mark = ",", digits = 1),
-    format(forest_2019_estimate, big.mark = ",", digits = 1),
-    format(forest_2024_estimate, big.mark = ",", digits = 1),
-    format(forest_loss_2014_2024_estimate, big.mark = ",", digits = 1)
-  )
-)
-
-knitr::kable(forest_summary, 
-             caption = "Forest Cover Summary for Bong County",
-             align = c("l", "r"))
-
-terra::plot(forest_2014, main="Forest Cover Map, 2014")
-terra::plot(forest_2019, main="Forest Cover Map, 2019")
-terra::plot(forest_2024, main="Forest Cover Map, 2024")
-```
-
-```{r}
-#| layout-ncol: 2
-#| warning: false
-#| message: false
-#| echo: false
-#| eval: true
-#| comment: NA
-
-forest_loss_2014_2024=terra::rast("./assets/LULC/outputs//forest_loss_2014_2024.tif")
 terra::plot(forest_loss_2014_2024, main="Forest Loss Map, 2014-2024")
 ```
 
@@ -1251,8 +1163,6 @@ The baseline emissions calculation for Bong County follows the Verra VM0048 meth
 | Soil Organic Carbon (CSOC) | 167.33 | 130.55 | 36.78 |
 | **Total Carbon Stock Loss** | **728.71** | **251.53** | **477.18** |
 
-###### SOC Methodology
-
 Post-deforestation soil organic carbon stocks were calculated using IPCC 2006 Guidelines factors for land-use change from forest to agricultural systems:
 
 *Table 4: IPCC Soil Organic Carbon Factors*
@@ -1266,11 +1176,22 @@ Post-deforestation soil organic carbon stocks were calculated using IPCC 2006 Gu
 Post-deforestation SOC = Pre-deforestation SOC × F(Lu) × F(MG) × F(I)\
 Post-deforestation SOC = 167.33 × 0.83 × 1.00 × 0.94 = 130.55 tCO2 ha-1
 
-#### Historical Deforestation Analysis
+Baseline Emissions = Annual Deforestation Area × Carbon Stock Loss per Hectare\*\*
+
+*Table 5: Baseline Emissions for Bong County*
+
+| Component | Annual Area (ha) | Emission Factor (tCO2/ha) | Annual Emissions (tCO2) |
+|----|----|----|----|
+| Above-ground Biomass Loss | 4,654 | 357.49 | 1,663,679 |
+| Below-ground Biomass Loss | 4,654 | 82.91 | 385,874 |
+| Soil Organic Carbon Loss | 4,654 | 36.78 | 171,210 |
+| **Total Annual Baseline Emissions** | **4,654** | **477.18** | **2,220,763** |
+
+#### Baseline Trends
 
 Based on the land cover classification results from Section 2, the historical reference period (2014-2024) analysis for Bong County shows:
 
-*Table 5: Historical Forest Cover and Deforestation in Bong County*
+*Table 6: Historical Forest Cover and Deforestation in Bong County*
 
 | Metric                            | Value         |
 |-----------------------------------|---------------|
@@ -1280,21 +1201,6 @@ Based on the land cover classification results from Section 2, the historical re
 | **Total Forest Loss (2014-2024)** | 46,541 ha     |
 | **Average Annual Deforestation**  | 4,654 ha/year |
 | **Annual Deforestation Rate**     | 0.94%         |
-
-#### Baseline Emissions Calculation
-
-Annual baseline emissions were calculated using the following formula consistent with VM0048 methodology:
-
-**Baseline Emissions = Annual Deforestation Area × Carbon Stock Loss per Hectare**
-
-*Table 6: Baseline Emissions for Bong County*
-
-| Component | Annual Area (ha) | Emission Factor (tCO2/ha) | Annual Emissions (tCO2) |
-|----|----|----|----|
-| Above-ground Biomass Loss | 4,654 | 357.49 | 1,663,679 |
-| Below-ground Biomass Loss | 4,654 | 82.91 | 385,874 |
-| Soil Organic Carbon Loss | 4,654 | 36.78 | 171,210 |
-| **Total Annual Baseline Emissions** | **4,654** | **477.18** | **2,220,763** |
 
 #### Runtime Info
 
