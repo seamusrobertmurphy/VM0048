@@ -1,6 +1,6 @@
 - title: Baseline Emissions
   path: ./baseline.qmd
-  image: assets/outputs/01-site-draft.png
+  image: assets/outputs/baseline-icon-b.png
   description: >
     A workflow for deriving baseline emissions from reference period compliant the VM0048 (V1.0) consolidated methodology.
   categories: [Baseline]
@@ -8,7 +8,7 @@
 
 - title: Deforestation Risk
   path: ./deforisk.qmd
-  image: assets/outputs/01-site-draft.png
+  image: assets/outputs/deforisk-icon.png
   description: >
     A workflow for deriving jurisidictional allocated deforestation risk mapping compliant with Verra’s VMD0055 (V1.1) module.
   categories: [Risk]
@@ -16,18 +16,9 @@
   
 - title: Leakage Belt
   path: ./leakage.qmd
-  image: assets/outputs/03-locator-map.png
+  image: assets/outputs/leakage-icon.png
   description: >
     A locator map showing the geographic position of a field site within its 
     local and national context, helping users quickly identify its broader location.
   categories: [Leakage]
   date: 2025-01-08
-
-- title: Uncertainty
-  path: ./uncertainty.qmd
-  image: assets/outputs/06-watershed-3D.png
-  description: >
-    Uncertainty checks
-  categories: [Uncertainty]
-  date: 2025-01-11
-
