@@ -3,5 +3,7 @@
 .RData
 .Ruserdata
 .DS_Store
-
+*.tif
+*.zip
 /.quarto/
+glance_training.csv

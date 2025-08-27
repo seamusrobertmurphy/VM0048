@@ -14,7 +14,49 @@ about:
     - icon: github
       text: Github
       href: https://github.com/seamusrobertmurphy
+editor: 
+  markdown: 
+    wrap: 100
 ---
 
 ::: {#hero-heading}
+*Select Publications*
+
+(1) **Murphy, S**., Cole, S. M., Kaminski, A. M., Charo-Karisa, H., Basiita, R. K., McDougall, C.,
+    Kakwasha, K., Mulilo, T., Rajaratnam, S., & Mekkawy, W. (**2024**). A gendered conjoint analysis
+    of tilapia trait preference rankings among urban consumers in Zambia: Evidence to inform genetic
+    improvement programs. *Aquaculture*, **741110**;
+    <https://doi.org/10.1016/j.aquaculture.2024.741110>
+
+(2) McDougall, C, Kariuki, J, Lenjiso, B M, Pricilla, M, Mehar, M, **Murphy, S**, Teeken, B,
+    Akester, M J, Benzie, J, Galie, A, Kulakow, P, Mekkawy, W, Nkengla-Asi, L, Ojango, J M K,
+    Tumuhimbise, R, Umwimana, B, Orr, A. (**2022**). “Understanding gendered trait preferences:
+    Implications for client-responsive breeding programs” *Plos Sustain Transform* **1 (8)**:
+    e0000025. <https://doi.org/10.1371/journal.pstr.0000025>
+
+(3) **Murphy, S**, Arora, D, Kruijssen, F, McDougall, C, P Kantor. (**2020**). “Gender-Based Market
+    Constraints to Informal Fish Retailing: Evidence from Analysis of Variance and Linear
+    Regression.” *PloS ONE* **15(3)**: e0229286. <https://doi.org/10.1371/journal.pone.0229286>
+
+(4) **Murphy, S**, Charo-Karisa, H, Rajaratnam, S, Cole, S M, McDougall, C, Nasr-Allah, A, Kenawy,
+    D, Zead, M Y A, van Brakel, M, L Banks. (**2020)**. “Selective Breeding Trait Preferences for
+    Farmed Tilapia among Low-Income Women and Men Consumers in Egypt; Implications for pro-Poor and
+    Gender-Responsive Fish Breeding Programmes.” *Aquaculture*. 525: 735042
+    <https://doi.org/10.1016/j.aquaculture.2020.735042>
+
+(5) Nasr-Allah, A, Gasparatos, A, Karanja, A, Dompreh, E., **Murphy, S**, Rossignoli, C M., Philips,
+    M, H Charo-Karisa. (**2020)**. “Employment Generation in the Egyptian Aquaculture Value Chain:
+    Implications for Meeting the Sustainable Development Goals (SDGs).” *Aquaculture* 520: 734940
+    <https://doi.org/10.1016/j.aquaculture.2020.734940>
+
+(6) Adeleke, M L, Kenawy, D, Nasr-Allah, A, **Murphy, S,** El-Naggar, G, M Dickson. (**2018**).
+    “Fish Farmers’ Perceptions, Impacts and Adaptation on/of/to Climate Change in Africa; The Case
+    of Egypt and Nigeria”, in. Fátima Alves, Walter Leal Filho, and Ulisses Azeiteiro (eds.) *Theory
+    and Practice of Climate Adaptation*, pp. 269–95. Springer International Publishing
+    <https://doi.org/10.1007/978-3-319-72874-2_16>
+
+(7) Kaush, A, Cleaveland S, Omore A, **Murphy S.** (2015). Tanzanian Livestock Modernization
+    Initiative; Preliminary Report (**2015)** *Ministry of Livestock & Fisheries Development*, CGIAR
+    Repository of Agricultural Research Outputs: 1–38.
+    <https://cgspace.cgiar.org/handle/10568/67749>
 :::

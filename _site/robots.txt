@@ -1,1 +1,1 @@
-Sitemap: https://17c2998f-b511-4c3f-b44d-24cddc66219d.netlify.app/sitemap.xml
+Sitemap: https://seamusrobertmurphy.quarto.pub/vm0048/sitemap.xml
