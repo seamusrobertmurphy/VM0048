@@ -1,7 +1,19 @@
 ---
-title: ""
-listing: 
+title: "VM0048: Consolidated Methodology Guide"
+listing:
   contents: landing.yml
-  type: grid
+  type: default
   sort: false
 ---
+
+:::: {#my-listing}
+::: listing
+Guide to Verra's VM0048 consolidated methodology and VMD0055-compliant emissions reporting:
+
+1.  Baseline Calculation: We perform comprehensive baseline emissions calculations using workflows for satellite-based forest monitoring. Our workflow uses Google Earth Engine to process Landsat Collection-2 Analysis-Ready-Data, including cloud-masking and atmospheric corrections.
+
+2.  Deforestation Risk & Spatial Modeling: We design and implement deforestation risk mapping and spatial covariate index development. This includes analyzing spatial data like roads, settlements, and slope to support accurate emissions accounting.
+
+3.  Leakage Analysis: We delineate VMD0055-compliant leakage belts and perform masking to exclude areas ineligible for leakage accounting, such as steep slopes or protected lands.
+:::
+::::

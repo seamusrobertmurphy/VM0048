@@ -1,5 +1,5 @@
 ---
-title: "Deforestation Risk"
+title: "VM0048: Jurisidictional Deforestation Risk Allocation"
 date: 2025-01-04
 author: 
   - name: Seamus Murphy

@@ -1,5 +1,5 @@
 ---
-title: "Baseline Emissions"
+title: "VM0048: Baseline Emissions"
 date: 2025-01-04
 author: 
   - name: Seamus Murphy
@@ -173,7 +173,7 @@ crs_master = sf::st_crs(aoi_country)
 # Visualize
 tmap::tmap_mode("view")
 tmap::tm_shape(aoi_country) + tmap::tm_borders(col="purple", lwd=2) +
-  tmap::tm_shape(aoi_states) + tmap::tm_borders(col="red", lwd=1) +
+  tmap::tm_shape(aoi_states) + tmap::tm_borders(col="red", lwd=2) +
   tmap::tm_scalebar(position=c("RIGHT", "BOTTOM"), text.size = .5) +
   tmap::tm_title("AOI Jurisdictional Boundaries", size=.8) + 
   #tmap::tm_compass(color.dark="gray60",text.color="gray60",position=c("RIGHT","top"))+
@@ -998,6 +998,7 @@ Balanced Accuracy            0.79268       0.5000      0.89886      0.99618
 The subset model achieved an Accuracy of 89. 8%. These metrics closely align with the results of the original model, suggesting minimal or no loss in predictive power despite using fewer predictors. Given that the reduction in complexity offered by the subsetted model does not provide significant benefits in this context, we would recommend proceeding with the original model to make spatial predictions. Modelling operations were then repeated for 2019 and 2024, which were visualized as the classified time series below.
 
 ```{r}
+#| layout-ncol: 3
 #| warning: false
 #| message: false
 #| echo: true
@@ -1054,7 +1055,6 @@ land_cover_summary
 #### Baseline Deforestation
 
 ```{r}
-#| layout-ncol: 2
 #| warning: false
 #| message: false
 #| echo: true
@@ -1113,9 +1113,9 @@ knitr::kable(
   caption = "Forest Cover Summary for Rivercress County",
   align = c("l", "r"))
 
-terra::plot(forest_2014, main="Forest Cover Map, 2014")
-terra::plot(forest_2019, main="Forest Cover Map, 2019")
-terra::plot(forest_2024, main="Forest Cover Map, 2024")
+#terra::plot(forest_2014, main="Forest Cover Map, 2014")
+#terra::plot(forest_2019, main="Forest Cover Map, 2019")
+#terra::plot(forest_2024, main="Forest Cover Map, 2024")
 terra::plot(forest_loss_2014_2024, main="Forest Loss Map, 2014-2024")
 ```
 
@@ -1193,8 +1193,8 @@ deforestation_baseline <- stars::read_stars("./assets/LULC/outputs/annual_loss_2
 
 tmap::tmap_mode("view")
 tmap::tm_shape(deforestation_baseline) + 
-  tmap::tm_raster("annual_loss_2014_2024_zonal.tif",title="Annual Deforestation (ha/yr)",
-    col.scale = tm_scale_continuous(values = terrain.colors(9))) +
+  tmap::tm_raster("annual_loss_2014_2024_zonal.tif",
+    palette = "viridis", style = "cont", title="Annual Deforestation (ha/yr)") +
   tmap::tm_shape(aoi_country) + tmap::tm_borders(col="purple", lwd=2) +
   tmap::tm_shape(aoi_states) + tmap::tm_borders(col="red", lwd=1.2) +
   tmap::tm_shape(aoi_states_all) + tmap::tm_borders(lwd = .9, col="black") +
